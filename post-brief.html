@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0d2145" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Kreddlo" />
+<link rel="apple-touch-icon" href="/assets/kreddlo-192.png" />
+<title>Post a Brief — Kreddlo</title>
+<script src="/assets/shared.js"></script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin/>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
+        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
+        cream:'#f8f9fb',border:'#e2e8f0'
+      },
+      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
+    }
+  }
+};
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+
+/* Buttons */
+.btn-green{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#2d8a5e;color:#fff;border:none;border-radius:50px;padding:11px 24px;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;box-shadow:0 4px 16px rgba(45,138,94,0.30);transition:transform .15s,box-shadow .15s,background .15s}
+.btn-green:hover{background:#236b49;transform:translateY(-1px);box-shadow:0 6px 20px rgba(45,138,94,0.38)}
+.btn-green:active{transform:translateY(0)}
+.btn-green:disabled{opacity:.6;cursor:default;transform:none}
+.btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:rgba(13,33,69,0.06);color:#0d2145;border:1.5px solid transparent;border-radius:50px;padding:9px 18px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;transition:transform .15s,background .15s}
+.btn-secondary:hover{background:rgba(13,33,69,0.11);transform:translateY(-1px)}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:3px 11px;border-radius:50px;font-size:11px;font-weight:600;letter-spacing:.3px;white-space:nowrap}
+.badge-green{background:#e8f5ef;color:#2d8a5e}
+.badge-blue{background:#e8f0fe;color:#1a56db}
+.badge-amber{background:#fff3cd;color:#856404}
+.badge-red{background:#fde8e8;color:#c81e1e}
+.badge-grey{background:rgba(13,33,69,0.07);color:rgba(13,33,69,0.55)}
+.badge-navy{background:rgba(13,33,69,0.08);color:#0d2145}
+
+/* Input field (design system) */
+.input-field{width:100%;padding:12px 16px;background:rgba(255,255,255,0.85);border:1.5px solid #e2e8f0;border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:500;color:#0d2145;outline:none;transition:border-color .2s,box-shadow .2s}
+.input-field:focus{border-color:#2d8a5e;box-shadow:0 0 0 3px rgba(45,138,94,0.11)}
+.input-field::placeholder{color:rgba(13,33,69,0.35)}
+.input-field.error{border-color:#e53e3e;box-shadow:0 0 0 3px rgba(229,62,62,0.10)}
+
+/* Nav */
+.nav-link{display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;font-size:13px;font-weight:600;color:rgba(255,255,255,0.52);text-decoration:none;transition:background .15s,color .15s;cursor:pointer;border:none;background:transparent;width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-link:hover{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.88)}
+.nav-link.active{background:rgba(45,138,94,0.22);color:#fff;border-left:3px solid #3dbd7a;padding-left:10px}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:#091830;color:#fff;border-radius:50px;padding:11px 22px;font-size:13px;font-weight:600;z-index:3000;opacity:0;pointer-events:none;transition:transform .25s,opacity .25s;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* Spinner */
+.spin{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Mobile menu */
+.slide-in{transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1)}
+.slide-in.open{transform:translateX(0)}
+.dim{opacity:0;pointer-events:none;transition:opacity .28s}
+.dim.open{opacity:1;pointer-events:all}
+
+/* Section label */
+.section-lbl{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:rgba(13,33,69,0.45);margin-bottom:12px;}
+
+/* Field group */
+.field-group{margin-bottom:18px;}
+.field-label{display:block;font-size:13px;font-weight:700;color:#0d2145;margin-bottom:7px;}
+.field-req{color:#c81e1e;}
+.field-counter{font-size:11px;color:rgba(13,33,69,0.40);text-align:right;margin-top:5px;}
+.field-error{font-size:12px;color:#c81e1e;margin-top:6px;display:none;font-weight:600;}
+.field-error.visible{display:block;}
+.field-help{font-size:12px;color:rgba(13,33,69,0.45);margin-top:6px;line-height:1.5;}
+
+/* Form card */
+.form-card{background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:22px 18px;margin-bottom:18px;}
+
+/* Skills tags UI (copied from profile-setup.html) */
+.skills-tags{display:flex;flex-wrap:wrap;gap:6px;min-height:36px;padding:10px 12px;border-radius:12px;border:1.5px solid #e2e8f0;background:rgba(255,255,255,0.70);cursor:text;transition:border-color .18s,box-shadow .18s;}
+.skills-tags:focus-within{border-color:#2d8a5e;box-shadow:0 0 0 3px rgba(45,138,94,0.12);}
+.skills-tags.error{border-color:#e53e3e;box-shadow:0 0 0 3px rgba(229,62,62,0.10);}
+.skill-tag{display:inline-flex;align-items:center;gap:5px;background:#e8f5ef;color:#2d8a5e;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:600;}
+.skill-tag-remove{background:none;border:none;cursor:pointer;padding:0;color:#2d8a5e;display:flex;align-items:center;font-size:15px;line-height:1;-webkit-tap-highlight-color:transparent;}
+.skill-tag-remove:hover{color:#c53030;}
+.skills-input{border:none;outline:none;background:transparent;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;color:#0d2145;flex:1;min-width:120px;}
+.skills-input::placeholder{color:rgba(13,33,69,0.30);}
+
+/* Brief card (preview — copied exactly from briefs.html design) */
+.brief-card{background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(13,33,69,0.06);text-decoration:none;display:flex;flex-direction:column;color:#0d2145;pointer-events:none;}
+.brief-title{font-size:16px;font-weight:700;color:#0d2145;margin-top:10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35;}
+.brief-desc{font-size:13px;color:rgba(13,33,69,0.60);margin-top:6px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.brief-skill-chip{display:inline-block;font-size:11px;font-weight:600;background:rgba(13,33,69,0.06);color:#0d2145;border-radius:50px;padding:3px 10px;}
+.brief-avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#2d8a5e,#3dbd7a);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;}
+
+/* Responsive */
+@media(min-width:1024px){
+  #sidebar{display:flex!important}
+  #hamburger{display:none!important}
+  #main-wrap{margin-left:248px;width:calc(100% - 248px);max-width:none;overflow-x:visible}
+}
+@media(min-width:640px){
+  .budget-row{flex-direction:row!important;}
+  .budget-row > div{width:200px!important;flex:none!important;}
+}
+@media(min-width:768px){
+  #page-content{padding:32px!important;width:100%!important;max-width:none!important;margin:0!important;box-sizing:border-box}
+  #form-inner{max-width:680px;margin:0 auto;}
+}
+</style>
+<style id="mobile-first-patch">
+html{overflow-x:hidden!important}
+body{overflow-x:hidden!important}
+#page-content{overflow:visible!important;padding-left:18px!important;padding-right:18px!important;min-height:100dvh!important}
+#hamburger{display:flex!important;min-width:44px!important;min-height:44px!important}
+@media(min-width:1024px){#hamburger{display:none!important}#sidebar{display:flex!important}}
+#toast{bottom:max(24px,env(safe-area-inset-bottom,24px))!important}
+#sidebar{height:100dvh!important;max-height:100dvh!important;padding-top:max(30px,env(safe-area-inset-top))!important;padding-bottom:max(20px,env(safe-area-inset-bottom))!important}
+</style>
+</head>
+<body style="visibility:hidden" class="overflow-x-hidden">
+
+<!-- MOBILE BACKDROP -->
+<div id="mobile-dim" class="dim" onclick="closeMobileMenu()" style="position:fixed;inset:0;z-index:400;background:rgba(9,24,48,0.58);"></div>
+
+<!-- MOBILE MENU -->
+<div id="mobile-menu" class="slide-in" style="position:fixed;top:0;right:0;width:272px;height:100%;height:100dvh;background:#091830;z-index:500;padding:30px 22px;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+  <button onclick="closeMobileMenu()" style="position:absolute;top:18px;right:18px;width:34px;height:34px;background:rgba(255,255,255,0.08);border:none;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <div style="font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;margin-bottom:36px;margin-top:2px;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></div>
+  <nav id="mobile-nav" style="flex:1;display:flex;flex-direction:column;gap:3px;"></nav>
+  <button id="mb-signout" style="margin-top:20px;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:11px;padding:11px 15px;color:rgba(255,255,255,0.58);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s,color .2s;" onmouseover="this.style.background='rgba(255,255,255,0.10)';this.style.color='#fff'" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.58)'">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Sign Out
+  </button>
+</div>
+
+<!-- DESKTOP SIDEBAR -->
+<aside id="sidebar" style="position:fixed;top:0;left:0;width:248px;height:100%;height:100dvh;background:#091830;z-index:300;padding:30px 18px;display:none;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+  <a href="/buyer-dashboard.html" style="font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;text-decoration:none;display:block;margin-bottom:44px;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></a>
+  <nav id="desktop-nav" style="flex:1;display:flex;flex-direction:column;gap:3px;"></nav>
+  <button id="dt-signout" style="margin-top:auto;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:11px;padding:11px 15px;color:rgba(255,255,255,0.58);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s,color .2s;" onmouseover="this.style.background='rgba(255,255,255,0.10)';this.style.color='#fff'" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.58)'">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Sign Out
+  </button>
+</aside>
+
+<!-- MAIN WRAPPER -->
+<div id="main-wrap" style="min-height:100dvh;display:flex;flex-direction:column;">
+
+  <!-- TOPBAR -->
+  <header style="position:sticky;top:0;z-index:200;height:64px;background:rgba(248,249,251,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;padding:0 20px;">
+    <h1 style="font-size:17px;font-weight:800;color:#0d2145;letter-spacing:-0.3px;margin:0;">Post a Brief</h1>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <!-- Bell -->
+      <button onclick="window.location.href='/notifications.html'" style="position:relative;width:38px;height:38px;background:transparent;border:none;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(13,33,69,0.06)'" onmouseout="this.style.background='transparent'">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#0d2145" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <!-- Avatar -->
+      <div id="user-avatar" style="width:35px;height:35px;background:linear-gradient(135deg,#2d8a5e,#3dbd7a);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;">B</div>
+      <!-- Hamburger -->
+      <button id="hamburger" aria-label="Open menu" onclick="openMobileMenu()" style="width:38px;height:38px;background:transparent;border:none;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(13,33,69,0.06)'" onmouseout="this.style.background='transparent'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d2145" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- PAGE CONTENT -->
+  <main id="page-content" style="flex:1;padding:22px 18px;width:100%;position:relative;">
+    <div id="form-inner">
+
+      <div style="margin-bottom:22px;">
+        <h2 style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;margin:0 0 5px;">Post a Brief</h2>
+        <p style="font-size:14px;font-weight:500;color:rgba(13,33,69,0.52);margin:0;">Describe the work you need done. Freelancers will submit Pitches.</p>
+      </div>
+
+      <form id="brief-form" onsubmit="return false;">
+
+        <!-- SECTION A: Brief details -->
+        <div class="form-card">
+          <p class="section-lbl">Brief Details</p>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-title">Brief Title <span class="field-req">*</span></label>
+            <input id="bf-title" type="text" class="input-field" maxlength="120" placeholder="e.g. Design a logo for my fintech startup" oninput="onFieldChange()"/>
+            <div class="field-counter"><span id="bf-title-count">0</span>/120</div>
+            <div class="field-error" id="bf-title-error">Title must be between 5 and 120 characters.</div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-category">Category <span class="field-req">*</span></label>
+            <select id="bf-category" class="input-field" onchange="onFieldChange()">
+              <option value="">Select a category</option>
+              <option value="Design">Design</option>
+              <option value="Development">Development</option>
+              <option value="Writing">Writing</option>
+              <option value="Marketing">Marketing</option>
+              <option value="Video">Video</option>
+              <option value="Audio">Audio</option>
+              <option value="Business">Business</option>
+              <option value="Other">Other</option>
+            </select>
+            <div class="field-error" id="bf-category-error">Please select a category.</div>
+          </div>
+
+          <div class="field-group" style="margin-bottom:0;">
+            <label class="field-label" for="bf-description">What do you need done? <span class="field-req">*</span></label>
+            <textarea id="bf-description" class="input-field" style="min-height:180px;resize:vertical;font-family:'Plus Jakarta Sans',sans-serif;" maxlength="5000" placeholder="Describe the work in detail. Include goals, deliverables, requirements, and any files or references you'll provide." oninput="onFieldChange()"></textarea>
+            <div class="field-counter"><span id="bf-description-count">0</span>/5000</div>
+            <div class="field-error" id="bf-description-error">Description must be between 20 and 5000 characters.</div>
+          </div>
+        </div>
+
+        <!-- SECTION B: Budget and timeline -->
+        <div class="form-card">
+          <p class="section-lbl">Budget &amp; Timeline</p>
+
+          <div class="field-group budget-row" style="display:flex;flex-direction:column;gap:14px;margin-bottom:6px;">
+            <div style="flex:1;">
+              <label class="field-label" for="bf-budget-min">Minimum Budget (USD) <span class="field-req">*</span></label>
+              <input id="bf-budget-min" type="number" class="input-field" min="1" step="1" placeholder="e.g. 100" oninput="onFieldChange()"/>
+            </div>
+            <div style="flex:1;">
+              <label class="field-label" for="bf-budget-max">Maximum Budget (USD) <span class="field-req">*</span></label>
+              <input id="bf-budget-max" type="number" class="input-field" min="1" step="1" placeholder="e.g. 500" oninput="onFieldChange()"/>
+            </div>
+          </div>
+          <div class="field-error" id="bf-budget-error">Maximum must be greater than or equal to minimum.</div>
+
+          <div class="field-group" style="margin-top:18px;margin-bottom:0;">
+            <label class="field-label" for="bf-deadline">Project Deadline <span class="field-req">*</span></label>
+            <input id="bf-deadline" type="date" class="input-field" oninput="onFieldChange()"/>
+            <div class="field-error" id="bf-deadline-error">Deadline must be a valid future date.</div>
+          </div>
+        </div>
+
+        <!-- SECTION C: Skills -->
+        <div class="form-card">
+          <p class="section-lbl">Skills Required</p>
+          <div class="field-group" style="margin-bottom:0;">
+            <div class="skills-tags" id="skills-tags-box" onclick="document.getElementById('skills-input').focus()">
+              <input id="skills-input" class="skills-input" type="text" placeholder="Type a skill and press Enter or comma…" maxlength="40" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"/>
+            </div>
+            <p class="field-help">Press Enter or comma to add. Max 10 skills.</p>
+            <div class="field-error" id="bf-skills-error">Please check your skills — max 10, each under 40 characters, no duplicates.</div>
+          </div>
+        </div>
+
+        <!-- LIVE PREVIEW -->
+        <div style="margin-bottom:18px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <p class="section-lbl" style="margin-bottom:0;">Live Preview</p>
+            <span class="badge badge-grey">Preview</span>
+          </div>
+          <div id="preview-card-wrap"></div>
+        </div>
+
+        <!-- SUBMIT -->
+        <button type="button" id="bf-submit-btn" class="btn-green" style="width:100%;padding:13px 24px;font-size:15px;" onclick="submitBrief()">
+          Post Brief
+        </button>
+        <div class="field-error" id="bf-submit-error" style="text-align:center;margin-top:12px;"></div>
+
+      </form>
+
+      <div style="height:32px;"></div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════
+   SKILLS TAG INPUT (pattern copied from profile-setup.html)
+══════════════════════════════════════════════ */
+var _skills = [];
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderSkillTags() {
+  var box = document.getElementById('skills-tags-box');
+  var input = document.getElementById('skills-input');
+  Array.prototype.forEach.call(box.querySelectorAll('.skill-tag'), function(el){ el.remove(); });
+  _skills.forEach(function(skill, idx) {
+    var tag = document.createElement('span');
+    tag.className = 'skill-tag';
+    tag.innerHTML =
+      '<span>' + escHtml(skill) + '</span>' +
+      '<button type="button" class="skill-tag-remove" aria-label="Remove ' + escHtml(skill) + '" onclick="removeSkill(' + idx + ')">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>';
+    box.insertBefore(tag, input);
+  });
+  onFieldChange();
+}
+
+function addSkill(raw) {
+  var val = raw.trim().replace(/,+$/, '').trim();
+  if (!val) return;
+  if (_skills.length >= 10) { showFieldError('bf-skills-error', 'A maximum of 10 skills is allowed.'); return; }
+  if (val.length > 40) { showFieldError('bf-skills-error', 'Each skill must be 40 characters or fewer.'); return; }
+  if (_skills.some(function(s){ return s.toLowerCase() === val.toLowerCase(); })) return;
+  hideFieldError('bf-skills-error');
+  _skills.push(val);
+  renderSkillTags();
+}
+
+function removeSkill(idx) {
+  _skills.splice(idx, 1);
+  renderSkillTags();
+}
+
+document.getElementById('skills-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    addSkill(this.value);
+    this.value = '';
+  } else if (e.key === 'Backspace' && !this.value && _skills.length > 0) {
+    _skills.pop();
+    renderSkillTags();
+  }
+});
+document.getElementById('skills-input').addEventListener('blur', function() {
+  if (this.value.trim()) { addSkill(this.value); this.value = ''; }
+});
+
+/* ══════════════════════════════════════════════
+   FIELD ERROR HELPERS
+══════════════════════════════════════════════ */
+function showFieldError(id, msg) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (msg) el.textContent = msg;
+  el.classList.add('visible');
+}
+function hideFieldError(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.remove('visible');
+}
+
+/* ══════════════════════════════════════════════
+   DEADLINE MIN = TODAY
+══════════════════════════════════════════════ */
+(function() {
+  var d = new Date();
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  document.getElementById('bf-deadline').min = yyyy + '-' + mm + '-' + dd;
+})();
+
+/* ══════════════════════════════════════════════
+   LIVE PREVIEW
+══════════════════════════════════════════════ */
+var _currentUserName = 'Buyer';
+
+function categoryBadgeClass(cat) {
+  if (cat === 'Design') return 'badge-green';
+  if (cat === 'Development') return 'badge-blue';
+  if (cat === 'Marketing') return 'badge-amber';
+  return 'badge-grey';
+}
+function formatBudget(min, max) {
+  var fmt = function(n){ return '$' + Number(n || 0).toLocaleString('en-US'); };
+  return fmt(min) + '\u2013' + fmt(max);
+}
+function formatDeadline(iso) {
+  if (!iso) return '';
+  var d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function initialsFor(name) {
+  if (!name) return '?';
+  var parts = String(name).trim().split(/\s+/);
+  if (!parts.length || !parts[0]) return '?';
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function renderPreview() {
+  var title = document.getElementById('bf-title').value.trim();
+  var description = document.getElementById('bf-description').value.trim();
+  var category = document.getElementById('bf-category').value;
+  var budgetMin = document.getElementById('bf-budget-min').value;
+  var budgetMax = document.getElementById('bf-budget-max').value;
+  var deadline = document.getElementById('bf-deadline').value;
+
+  var shownSkills = _skills.slice(0, 3);
+  var extraCount = _skills.length - shownSkills.length;
+  var skillsHtml = shownSkills.map(function(s){ return '<span class="brief-skill-chip">' + escHtml(s) + '</span>'; }).join('');
+  if (extraCount > 0) skillsHtml += '<span class="brief-skill-chip">+' + extraCount + ' more</span>';
+
+  var wrap = document.getElementById('preview-card-wrap');
+  wrap.innerHTML =
+    '<div class="brief-card">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+        '<span class="badge ' + categoryBadgeClass(category) + '">' + escHtml(category || 'Category') + '</span>' +
+        '<span style="font-size:12px;color:rgba(13,33,69,0.45);white-space:nowrap;">0 Pitches</span>' +
+      '</div>' +
+      '<div class="brief-title">' + escHtml(title || 'Your Brief title will appear here') + '</div>' +
+      '<div class="brief-desc">' + escHtml((description || 'Your description preview will appear here.').slice(0, 120)) + '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:#2d8a5e;margin-top:12px;">Budget: ' + (budgetMin || budgetMax ? formatBudget(budgetMin, budgetMax) : '$0\u2013$0') + '</div>' +
+      '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:4px;">' + (deadline ? 'Due by ' + escHtml(formatDeadline(deadline)) : 'No deadline set') + '</div>' +
+      (skillsHtml ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">' + skillsHtml + '</div>' : '') +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0;">' +
+        '<div class="brief-avatar">' + escHtml(initialsFor(_currentUserName)) + '</div>' +
+        '<span style="font-size:12px;font-weight:600;color:#0d2145;">' + escHtml(_currentUserName) + '</span>' +
+      '</div>' +
+    '</div>';
+}
+
+function onFieldChange() {
+  var title = document.getElementById('bf-title').value;
+  var description = document.getElementById('bf-description').value;
+  document.getElementById('bf-title-count').textContent = title.length;
+  document.getElementById('bf-description-count').textContent = description.length;
+
+  var min = Number(document.getElementById('bf-budget-min').value);
+  var max = Number(document.getElementById('bf-budget-max').value);
+  if (document.getElementById('bf-budget-min').value && document.getElementById('bf-budget-max').value && max < min) {
+    showFieldError('bf-budget-error');
+  } else {
+    hideFieldError('bf-budget-error');
+  }
+
+  renderPreview();
+}
+
+/* ══════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════ */
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+/* ══════════════════════════════════════════════
+   MOBILE MENU
+══════════════════════════════════════════════ */
+function openMobileMenu() {
+  document.getElementById('mobile-menu').classList.add('open');
+  document.getElementById('mobile-dim').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeMobileMenu() {
+  document.getElementById('mobile-menu').classList.remove('open');
+  document.getElementById('mobile-dim').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+/* ══════════════════════════════════════════════
+   NAV (buyer sidebar — identical item set to buyer-dashboard.html)
+══════════════════════════════════════════════ */
+var NAV = [
+  { label:'Dashboard',    href:'/buyer-dashboard.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' },
+  { label:'Projects',     href:'/buyer-projects.html',  icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' },
+  { label:'Contracts',    href:'/dashboard-contracts.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>' },
+  { label:'Browse',       href:'/browse.html',          icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' },
+  { label:'Payments',     href:'/buyer-payments.html',  icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>' },
+  { label:'Purchases',    href:'/buyer-purchases.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>' },
+  { label:'Affiliate',    href:'/dashboard-affiliate.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+  { label:'Settings',     href:'/dashboard-settings.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>' }
+];
+
+function buildNav(affiliateEnabled) {
+  var cur = (window.location.pathname.split('/').pop() || 'buyer-dashboard.html');
+  var items = NAV.filter(function(n) {
+    if (n.label === 'Affiliate') return affiliateEnabled === true;
+    return true;
+  });
+  var html = items.map(function(n) {
+    var active = (cur === n.href.replace(/^\//,'')) ? ' active' : '';
+    return '<a href="'+n.href+'" class="nav-link'+active+'" onclick="closeMobileMenu()">'+n.icon+n.label+'</a>';
+  }).join('');
+  document.getElementById('mobile-nav').innerHTML = html;
+  document.getElementById('desktop-nav').innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════
+   FORM VALIDATION + SUBMIT
+══════════════════════════════════════════════ */
+function validateForm() {
+  var ok = true;
+
+  var title = document.getElementById('bf-title').value.trim();
+  if (title.length < 5 || title.length > 120) {
+    showFieldError('bf-title-error');
+    document.getElementById('bf-title').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-title-error');
+    document.getElementById('bf-title').classList.remove('error');
+  }
+
+  var category = document.getElementById('bf-category').value;
+  if (!category) {
+    showFieldError('bf-category-error');
+    document.getElementById('bf-category').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-category-error');
+    document.getElementById('bf-category').classList.remove('error');
+  }
+
+  var description = document.getElementById('bf-description').value.trim();
+  if (description.length < 20 || description.length > 5000) {
+    showFieldError('bf-description-error');
+    document.getElementById('bf-description').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-description-error');
+    document.getElementById('bf-description').classList.remove('error');
+  }
+
+  var min = Number(document.getElementById('bf-budget-min').value);
+  var max = Number(document.getElementById('bf-budget-max').value);
+  if (!min || min < 1) {
+    showFieldError('bf-budget-error', 'Minimum budget must be at least $1.');
+    document.getElementById('bf-budget-min').classList.add('error');
+    ok = false;
+  } else if (!max || max < min) {
+    showFieldError('bf-budget-error', 'Maximum must be greater than or equal to minimum.');
+    document.getElementById('bf-budget-max').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-budget-error');
+    document.getElementById('bf-budget-min').classList.remove('error');
+    document.getElementById('bf-budget-max').classList.remove('error');
+  }
+
+  var deadline = document.getElementById('bf-deadline').value;
+  var deadlineDate = deadline ? new Date(deadline + 'T00:00:00') : null;
+  var today = new Date(); today.setHours(0,0,0,0);
+  if (!deadline || !deadlineDate || isNaN(deadlineDate.getTime()) || deadlineDate <= today) {
+    showFieldError('bf-deadline-error');
+    document.getElementById('bf-deadline').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-deadline-error');
+    document.getElementById('bf-deadline').classList.remove('error');
+  }
+
+  if (_skills.length > 10 || _skills.some(function(s){ return !s || s.length > 40; })) {
+    showFieldError('bf-skills-error');
+    ok = false;
+  } else {
+    hideFieldError('bf-skills-error');
+  }
+
+  return ok;
+}
+
+function submitBrief() {
+  document.getElementById('bf-submit-error').textContent = '';
+  document.getElementById('bf-submit-error').classList.remove('visible');
+
+  if (!validateForm()) {
+    showToast('Please fix the highlighted fields.');
+    return;
+  }
+  if (!window.auth || !window.auth.currentUser) {
+    document.getElementById('bf-submit-error').textContent = 'Please log in again to post a Brief.';
+    document.getElementById('bf-submit-error').classList.add('visible');
+    return;
+  }
+
+  var payload = {
+    title: document.getElementById('bf-title').value.trim(),
+    description: document.getElementById('bf-description').value.trim(),
+    budgetMin: Number(document.getElementById('bf-budget-min').value),
+    budgetMax: Number(document.getElementById('bf-budget-max').value),
+    deadline: document.getElementById('bf-deadline').value,
+    category: document.getElementById('bf-category').value,
+    skills: _skills.slice()
+  };
+
+  var btn = document.getElementById('bf-submit-btn');
+  btn.disabled = true;
+  var originalHtml = btn.innerHTML;
+  btn.innerHTML = '<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Posting...';
+
+  window.auth.currentUser.getIdToken().then(function(idToken){
+    return fetch('/.netlify/functions/post-brief', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+      body: JSON.stringify(payload)
+    }).then(function(res){
+      return res.json().then(function(data){ return { ok: res.ok, status: res.status, data: data }; });
+    });
+  }).then(function(result){
+    if (!result.ok) {
+      document.getElementById('bf-submit-error').textContent = (result.data && result.data.error) || 'Something went wrong. Please try again.';
+      document.getElementById('bf-submit-error').classList.add('visible');
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      showToast('Could not post Brief.');
+      return;
+    }
+    showToast('Brief posted successfully.');
+    window.location.href = '/buyer-briefs.html?posted=1';
+  }).catch(function(){
+    document.getElementById('bf-submit-error').textContent = 'Network error. Please check your connection and try again.';
+    document.getElementById('bf-submit-error').classList.add('visible');
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    showToast('Network error. Please try again.');
+  });
+}
+
+/* Initial render */
+renderPreview();
+
+/* Safety: force-hide loading overlay after 10s if auth/boot stalls */
+(function() {
+  setTimeout(function() { document.body.style.visibility = 'visible'; }, 10000);
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/service-worker.js').catch(function(err) {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
+</script>
+
+<script type="module">
+  import { initializeApp }     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+  const FIREBASE_CONFIG = {
+    apiKey:            'AIzaSyADHwnG1Im3IF5VetCilku1WeefjUR8Zkk',
+    authDomain:        'kreddlo.firebaseapp.com',
+    projectId:         'kreddlo',
+    storageBucket:     'kreddlo.firebasestorage.app',
+    messagingSenderId: '764500458567',
+    appId:             '1:764500458567:web:2389d5cf8c688caafd0562',
+  };
+  const app  = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+  window.db  = db;
+  window.auth = auth;
+
+  window.handleLogout = function() {
+    signOut(auth).then(function(){ window.location.href = '/login.html'; })
+      .catch(function(){ window.location.href = '/login.html'; });
+  };
+  document.getElementById('mb-signout').onclick = window.handleLogout;
+  document.getElementById('dt-signout').onclick = window.handleLogout;
+
+  onAuthStateChanged(auth, function(user) {
+    if (!user) { window.location.href = '/login.html?next=/post-brief.html'; return; }
+    getDoc(doc(db, 'users', user.uid)).then(function(snap) {
+      if (!snap.exists()) { window.location.href = '/login.html?next=/post-brief.html'; return; }
+      var userData = snap.data();
+      var role = userData.role;
+      if (role === 'freelancer') { window.location.href = '/dashboard.html'; return; }
+      if (role !== 'buyer') { window.location.href = '/login.html?next=/post-brief.html'; return; }
+
+      var name = user.displayName || userData.name || user.email || 'Buyer';
+      window._currentUserName_bf = name;
+      _currentUserNameSet(name);
+
+      var parts = name.trim().split(' ');
+      document.getElementById('user-avatar').textContent =
+        parts.length >= 2 ? parts[0][0]+parts[parts.length-1][0] : name.slice(0,2).toUpperCase();
+
+      buildNav(userData.affiliateEnabled === true);
+      document.body.style.visibility = 'visible';
+    }).catch(function() { window.location.href = '/login.html?next=/post-brief.html'; });
+  });
+
+  function _currentUserNameSet(name) {
+    if (typeof window.setPreviewName === 'function') window.setPreviewName(name);
+  }
+</script>
+<script>
+window.setPreviewName = function(name) {
+  _currentUserName = name;
+  renderPreview();
+};
+</script>
+</body>
+</html>

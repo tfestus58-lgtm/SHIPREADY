@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0d2145" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Kreddlo" />
+<link rel="apple-touch-icon" href="/assets/kreddlo-192.png" />
+  <title id="page-title">Brief — Kreddlo</title>
+  <meta id="meta-description" name="description" content="View this Brief on Kreddlo and submit a Pitch to get hired." />
+  <meta id="og-title" property="og:title" content="Brief - Kreddlo" />
+  <meta id="og-description" property="og:description" content="View this Brief on Kreddlo and submit a Pitch to get hired." />
+  <meta id="og-url" property="og:url" content="https://kreddlo.space/brief.html" />
+  <meta property="og:image" content="https://kreddlo.space/assets/kreddlo-og-banner.png" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://kreddlo.space/assets/kreddlo-og-banner.png" />
+  <link id="canonical" rel="canonical" href="https://kreddlo.space/brief.html" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin/>
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy:          '#0d2145',
+            'navy-deep':   '#091830',
+            'navy-mid':    '#162f5e',
+            green:         '#2d8a5e',
+            'green-light': '#3dbd7a',
+            'green-pale':  '#e8f5ef',
+            cream:         '#f8f9fb',
+            border:        '#e2e8f0',
+          },
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          },
+          borderRadius: {
+            pill: '50px',
+            card: '20px',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #f8f9fb;
+      color: #0d2145;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ── Glass ── */
+    .glass {
+      background: rgba(255,255,255,0.60);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,0.30);
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(13,33,69,0.08);
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #0d2145; color: #fff; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #0d2145; cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(13,33,69,0.20);
+    }
+    .btn-primary:hover  { background: #162f5e; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(13,33,69,0.28); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; color: #0d2145; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #0d2145; cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+    }
+    .btn-secondary:hover  { background: #0d2145; color: #fff; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(13,33,69,0.20); }
+    .btn-secondary:active { transform: translateY(0); }
+
+    .btn-green {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #2d8a5e; color: #fff; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #2d8a5e; cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(45,138,94,0.30);
+    }
+    .btn-green:hover  { background: #236b49; border-color: #236b49; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(45,138,94,0.38); }
+    .btn-green:active { transform: translateY(0); }
+    .btn-green:disabled, .btn-green[disabled] {
+      opacity: 0.6; cursor: not-allowed; transform: none !important; box-shadow: none !important;
+    }
+
+    /* ── Blob decoration ── */
+    .blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(90px); pointer-events: none; z-index: 0;
+    }
+
+    /* ── Mobile menu overlay ── */
+    .menu-overlay {
+      position: fixed; inset: 0;
+      background: rgba(9,24,48,0.60);
+      z-index: 400;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .menu-overlay.open { opacity: 1; pointer-events: all; }
+
+    /* ── Mobile slide-in menu ── */
+    .mobile-menu-panel {
+      position: fixed; top: 0; right: 0;
+      width: 280px; height: 100%;
+      background: #091830;
+      z-index: 500;
+      padding: 32px 24px;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.30s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .mobile-menu-panel.open { transform: translateX(0); }
+
+    /* ── Input field (design system) ── */
+    .input-field{width:100%;padding:12px 16px;background:rgba(255,255,255,0.85);border:1.5px solid #e2e8f0;border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:500;color:#0d2145;outline:none;transition:border-color .2s,box-shadow .2s}
+    .input-field:focus{border-color:#2d8a5e;box-shadow:0 0 0 3px rgba(45,138,94,0.11)}
+    .input-field::placeholder{color:rgba(13,33,69,0.35)}
+    textarea.input-field{resize:vertical;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.6}
+
+    /* ── Label (design system) ── */
+    .lbl{font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:rgba(13,33,69,0.48)}
+
+    /* ── Badges (design system) ── */
+    .badge{display:inline-flex;align-items:center;padding:3px 11px;border-radius:50px;font-size:11px;font-weight:600;letter-spacing:.3px;white-space:nowrap}
+    .badge-green{background:#e8f5ef;color:#2d8a5e}
+    .badge-blue{background:#e8f0fe;color:#1a56db}
+    .badge-amber{background:#fff3cd;color:#856404}
+    .badge-red{background:#fde8e8;color:#c81e1e}
+    .badge-grey{background:rgba(13,33,69,0.07);color:rgba(13,33,69,0.55)}
+
+    /* ── Skeleton loader (design system) ── */
+    .sk{background:linear-gradient(90deg,#f0f2f6 25%,#e8eaf0 50%,#f0f2f6 75%);background-size:200% 100%;animation:sk 1.5s infinite linear;border-radius:8px}
+    @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+    /* ── Spinner (design system) ── */
+    .spin{animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Skill chip ── */
+    .brief-skill-chip {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      background: rgba(13,33,69,0.06); color: #0d2145;
+      border-radius: 50px; padding: 3px 10px;
+    }
+
+    /* ── Avatars ── */
+    .brief-avatar-40 {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg,#2d8a5e,#3dbd7a);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: #fff;
+    }
+
+    /* ── Detail card ── */
+    .brief-detail-card {
+      background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px;
+      padding: 24px 20px;
+    }
+    @media (min-width: 768px) {
+      .brief-detail-card { padding: 32px 36px; }
+    }
+
+    /* ── Focus-visible global ── */
+    :focus-visible { outline: 2px solid #2d8a5e; outline-offset: 2px; }
+
+    /* ── Toast ── */
+    #brief-toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px);
+      background: #091830; color: #fff; border-radius: 50px;
+      padding: 11px 22px; font-size: 13px; font-weight: 600;
+      z-index: 3000; opacity: 0; pointer-events: none;
+      transition: transform .25s, opacity .25s; white-space: nowrap;
+      max-width: 90vw; text-align: center;
+    }
+    #brief-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+
+  <!-- Firebase CDN -->
+  <script type="module">
+    import { initializeApp }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, doc, getDoc }
+                                from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyADHwnG1Im3IF5VetCilku1WeefjUR8Zkk",
+      authDomain:        "kreddlo.firebaseapp.com",
+      projectId:         "kreddlo",
+      storageBucket:     "kreddlo.firebasestorage.app",
+      messagingSenderId: "764500458567",
+      appId:             "1:764500458567:web:2389d5cf8c688caafd0562",
+    };
+
+    const app      = initializeApp(firebaseConfig);
+    window.db      = getFirestore(app);
+    window.auth    = getAuth(app);
+
+    window._firebaseReady = true;
+    window._onAuthStateChanged = (cb) => onAuthStateChanged(window.auth, cb);
+    window.dispatchEvent(new Event('kreddlo-firebase-ready'));
+
+    // Load social links from Firestore config
+    (async () => {
+      try {
+        const snap = await getDoc(doc(window.db, 'config', 'platform'));
+        const s = snap.exists() ? snap.data() : {};
+        ['twitter', 'linkedin', 'instagram'].forEach(name => {
+          const el = document.getElementById('social-' + name);
+          if (!el) return;
+          const url = s[name + 'Url'] || '';
+          if (url) { el.href = url; el.style.display = 'flex'; } else { el.style.display = 'none'; }
+        });
+      } catch (e) { /* silent fail */ }
+    })();
+
+    // Auth-aware nav + role resolution (drives the Pitch form's 3-state logic)
+    window._kreddloAuthResolved = false;
+    onAuthStateChanged(window.auth, async (user) => {
+      const navPublicDesktop = document.getElementById('nav-public-desktop');
+      const navAuthDesktop   = document.getElementById('nav-auth-desktop');
+      const navPublicMobile  = document.getElementById('nav-public-mobile');
+      const navAuthMobile    = document.getElementById('nav-auth-mobile');
+      const avatarEl         = document.getElementById('nav-brief-avatar');
+      const dashLinkD        = document.getElementById('nav-brief-dash-desktop');
+      const dashLinkM        = document.getElementById('nav-brief-dash-mobile');
+
+      if (!user) {
+        window._kreddloUser = null;
+        window._kreddloRole = null;
+        window._kreddloAuthResolved = true;
+        if (typeof window._renderPitchSection === 'function') window._renderPitchSection();
+        return;
+      }
+
+      window._kreddloUser = user;
+      let dashHref = '/dashboard.html';
+      try {
+        const snap = await getDoc(doc(window.db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          window._kreddloRole = data.role || null;
+          if (data.role === 'buyer') dashHref = '/buyer-dashboard.html';
+        }
+      } catch(e) {}
+      window._kreddloAuthResolved = true;
+
+      if (dashLinkD) dashLinkD.href = dashHref;
+      if (dashLinkM) dashLinkM.href = dashHref;
+
+      const initial = (user.displayName || user.email || '?')[0].toUpperCase();
+      if (avatarEl) avatarEl.textContent = initial;
+
+      if (navPublicDesktop) navPublicDesktop.style.display = 'none';
+      if (navAuthDesktop)   navAuthDesktop.style.display   = 'flex';
+      if (navPublicMobile) navPublicMobile.style.display = 'none';
+      if (navAuthMobile)   navAuthMobile.style.display   = 'flex';
+
+      if (typeof window._renderPitchSection === 'function') window._renderPitchSection();
+    });
+  </script>
+  <script src="/assets/shared.js" defer></script>
+</head>
+
+<body class="overflow-x-hidden">
+<!-- ═══════════════════════════════════════════════════
+     SITE BANNER — reads config/banner from Firestore
+     Do not remove. Managed via admin > Site Banner.
+═══════════════════════════════════════════════════ -->
+<div id="site-banner" style="display:none;width:100%;box-sizing:border-box;"></div>
+<div id="site-banner-backdrop" style="display:none;position:fixed;inset:0;background:rgba(13,33,69,0.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:9998;" onclick="window._dismissSiteBanner&&window._dismissSiteBanner()"></div>
+<script>
+(function(){
+  var MAX_WAIT=8000,POLL_INT=80,elapsed=0;
+  function renderBanner(data){
+    var ms=data.publishedAt&&data.publishedAt.toMillis?data.publishedAt.toMillis():(data.publishedAt||0);
+    var dismissKey='dismissed_banner_'+ms;
+    if(data.dismissible&&localStorage.getItem(dismissKey)==='1')return;
+    var style=data.style||'info';
+    var mode=data.displayMode||'strip';
+    var themes={
+      info:   {bg:'#dbeafe',border:'rgba(59,130,246,0.35)',text:'#1e3a5f',btn:'#3b82f6',btnText:'#fff'},
+      warning:{bg:'#fef9c3',border:'rgba(202,138,4,0.35)', text:'#713f12',btn:'#ca8a04',btnText:'#fff'},
+      success:{bg:'#dcfce7',border:'rgba(22,163,74,0.35)', text:'#14532d',btn:'#16a34a',btnText:'#fff'}
+    };
+    var t=themes[style]||themes.info;
+    function dismiss(){
+      if(data.dismissible)localStorage.setItem(dismissKey,'1');
+      document.getElementById('site-banner').style.display='none';
+      document.getElementById('site-banner-backdrop').style.display='none';
+    }
+    window._dismissSiteBanner=dismiss;
+    var closeBtn=data.dismissible
+      ?'<button onclick="window._dismissSiteBanner()" aria-label="Dismiss" style="flex-shrink:0;min-width:44px;min-height:44px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px;color:'+t.text+';padding:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'
+      :'';
+    var ctaBtn=(data.ctaLabel&&data.ctaUrl)
+      ?'<a href="'+data.ctaUrl+'" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;white-space:nowrap;padding:8px 18px;background:'+t.btn+';color:'+t.btnText+';border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;flex-shrink:0;">'+data.ctaLabel+'</a>'
+      :'';
+    var banner=document.getElementById('site-banner');
+    var backdrop=document.getElementById('site-banner-backdrop');
+    if(mode==='modal'){
+      banner.style.cssText=['display:none','position:fixed','top:50%','left:50%','transform:translate(-50%,-50%)','z-index:9999','width:calc(100% - 32px)','max-width:480px','box-sizing:border-box','flex-direction:column','gap:12px','background:'+t.bg,'border:1.5px solid '+t.border,'border-radius:20px','padding:24px 20px 20px','box-shadow:0 20px 60px rgba(13,33,69,0.22)'].join(';');
+      banner.innerHTML='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><span style="font-size:17px;font-weight:800;color:'+t.text+';line-height:1.3;flex:1;">'+(data.title||'')+'</span>'+closeBtn+'</div>'+(data.body?'<p style="font-size:14px;font-weight:500;color:'+t.text+';margin:0;line-height:1.6;opacity:0.85;">'+data.body+'</p>':'')+(ctaBtn?'<div>'+ctaBtn+'</div>':'');
+      banner.style.display='flex';
+      backdrop.style.display='block';
+    } else {
+      banner.style.cssText=['display:flex','width:100%','box-sizing:border-box','align-items:center','justify-content:space-between','gap:10px','background:'+t.bg,'border-bottom:1.5px solid '+t.border,'padding:10px 16px','flex-wrap:wrap'].join(';');
+      banner.innerHTML='<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;flex:1;min-width:0;"><span style="font-size:14px;font-weight:700;color:'+t.text+';white-space:nowrap;">'+(data.title||'')+'</span>'+(data.body?'<span style="font-size:13px;font-weight:500;color:'+t.text+';opacity:0.80;line-height:1.5;">'+data.body+'</span>':'')+ctaBtn+'</div>'+closeBtn;
+    }
+  }
+  function tryLoad(){
+    if(window.db){
+      var _imp=window.firestore||null;
+      if(_imp&&_imp.getDoc&&_imp.doc){
+        _imp.getDoc(_imp.doc(window.db,'config','banner')).then(function(snap){
+          if(snap.exists()){var d=snap.data();if(d.active===true)renderBanner(d);}
+        }).catch(function(){});
+      } else {
+        import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(function(m){
+          m.getDoc(m.doc(window.db,'config','banner')).then(function(snap){
+            if(snap.exists()){var d=snap.data();if(d.active===true)renderBanner(d);}
+          }).catch(function(){});
+        }).catch(function(){});
+      }
+      return;
+    }
+    elapsed+=POLL_INT;
+    if(elapsed<MAX_WAIT)setTimeout(tryLoad,POLL_INT);
+  }
+  setTimeout(tryLoad,120);
+})();
+</script>
+
+
+  <!-- ══════════════════════════════════
+       MOBILE MENU OVERLAY
+  ══════════════════════════════════ -->
+  <div class="menu-overlay" id="menu-overlay" onclick="closeMobileMenu()" aria-hidden="true"></div>
+
+  <!-- ══════════════════════════════════
+       MOBILE SLIDE-IN MENU
+  ══════════════════════════════════ -->
+  <div class="mobile-menu-panel" id="mobile-panel" role="dialog" aria-label="Navigation menu" aria-modal="true">
+    <div class="flex items-center justify-between mb-10">
+      <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+        Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span>
+      </span>
+      <button onclick="closeMobileMenu()" aria-label="Close menu"
+        style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.08);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+        <svg width="18" height="18" fill="none" stroke="#fff" stroke-width="2.2" viewBox="0 0 24 24">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav style="display:flex;flex-direction:column;gap:4px;flex:1;">
+      <a href="/" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Home
+      </a>
+      <a href="/browse.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Browse
+      </a>
+      <a href="/briefs.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white text-[15px] font-semibold no-underline"
+         style="background:rgba(45,138,94,0.18);border-left:3px solid #2d8a5e;">
+        Briefs
+      </a>
+      <a href="/how-it-works.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        How It Works
+      </a>
+      <a href="/pricing.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Pricing
+      </a>
+      <a href="/blog/index.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Blog
+      </a>
+      <a href="/about.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        About
+      </a>
+    </nav>
+
+    <div id="nav-public-mobile" style="display:flex;flex-direction:column;gap:10px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">
+      <a href="/login.html" onclick="closeMobileMenu()"
+         style="display:block;text-align:center;padding:12px 20px;border-radius:50px;border:1.5px solid rgba(255,255,255,0.20);color:rgba(255,255,255,0.80);font-size:14px;font-weight:600;text-decoration:none;transition:background 0.18s,border-color 0.18s;"
+         onmouseover="this.style.background='rgba(255,255,255,0.06)';"
+         onmouseout="this.style.background='';">
+        Log In
+      </a>
+      <a href="/signup.html" onclick="closeMobileMenu()" class="btn-green" style="text-align:center;font-size:14px;padding:12px 20px;">
+        Get Started
+      </a>
+    </div>
+    <div id="nav-auth-mobile" style="display:none;flex-direction:column;gap:10px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">
+      <a id="nav-brief-dash-mobile" href="/dashboard.html" onclick="closeMobileMenu()" class="btn-green" style="text-align:center;font-size:14px;padding:12px 20px;">
+        Dashboard
+      </a>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       STICKY NAVBAR
+  ══════════════════════════════════ -->
+  <nav style="position:sticky;top:0;z-index:200;padding:12px 16px;">
+    <div class="glass" style="max-width:1200px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+
+      <a href="/" style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;text-decoration:none;flex-shrink:0;display:inline-block;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></a>
+
+      <div style="display:none;align-items:center;gap:32px;" class="md-flex-row">
+        <a href="/#features"        class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Features</a>
+        <a href="/how-it-works.html" class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">How It Works</a>
+        <a href="/browse.html"       class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Browse</a>
+        <a href="/briefs.html"       class="text-navy font-bold text-sm">Briefs</a>
+        <a href="/pricing.html"      class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Pricing</a>
+        <a href="/blog/index.html"   class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Blog</a>
+        <a href="/about.html"        class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">About</a>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="nav-public-desktop" class="desktop-auth" style="display:none;gap:8px;align-items:center;">
+          <a href="/login.html"  class="btn-secondary" style="padding:9px 20px;font-size:14px;">Log In</a>
+          <a href="/signup.html" class="btn-green"      style="padding:9px 20px;font-size:14px;">Get Started</a>
+        </div>
+        <div id="nav-auth-desktop" style="display:none;align-items:center;gap:10px;">
+          <a id="nav-brief-dash-desktop" href="/dashboard.html" class="btn-secondary" style="padding:9px 20px;font-size:14px;font-weight:600;">Dashboard</a>
+          <div id="nav-brief-avatar" style="width:34px;height:34px;border-radius:50%;background:#2d8a5e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;"></div>
+        </div>
+        <button id="hamburger" onclick="openMobileMenu()" aria-label="Open menu" aria-expanded="false"
+          style="width:40px;height:40px;border-radius:10px;background:rgba(13,33,69,0.06);border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transition:background 0.18s;"
+          onmouseover="this.style.background='rgba(13,33,69,0.10)';"
+          onmouseout="this.style.background='rgba(13,33,69,0.06)';">
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════════════════════════════
+       PAGE CONTENT
+  ══════════════════════════════════ -->
+  <section style="padding:24px 20px 60px;">
+    <div id="brief-page-inner" style="max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Back link -->
+      <a href="/briefs.html" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:rgba(13,33,69,0.55);text-decoration:none;width:fit-content;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Back to Briefs
+      </a>
+
+      <!-- ══════════════════════════════════
+           SECTION 1 — BRIEF DETAIL HEADER
+      ══════════════════════════════════ -->
+      <div class="brief-detail-card" id="brief-detail-card">
+        <!-- Loading skeleton -->
+        <div id="brief-loading-skeleton">
+          <div style="display:flex;gap:8px;">
+            <div class="sk" style="height:20px;width:90px;border-radius:50px;"></div>
+            <div class="sk" style="height:20px;width:60px;border-radius:50px;"></div>
+          </div>
+          <div class="sk" style="height:26px;width:80%;margin-top:18px;"></div>
+          <div class="sk" style="height:26px;width:55%;margin-top:8px;"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:18px;">
+            <div class="sk" style="width:40px;height:40px;border-radius:50%;"></div>
+            <div class="sk" style="height:14px;width:140px;"></div>
+          </div>
+          <div class="sk" style="height:14px;width:100%;margin-top:22px;"></div>
+          <div class="sk" style="height:14px;width:92%;margin-top:8px;"></div>
+          <div class="sk" style="height:14px;width:70%;margin-top:8px;"></div>
+        </div>
+
+        <!-- Real content (hidden until loaded) -->
+        <div id="brief-detail-content" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="badge" id="brief-category-badge"></span>
+            <span class="badge" id="brief-status-badge"></span>
+            <span style="font-size:12px;color:rgba(13,33,69,0.45);" id="brief-pitch-count-text"></span>
+          </div>
+
+          <h1 id="brief-title" style="font-weight:800;color:#0d2145;letter-spacing:-0.3px;margin:12px 0 0;font-size:22px;line-height:1.3;"></h1>
+
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
+            <div class="brief-avatar-40" id="brief-buyer-avatar"></div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#0d2145;" id="brief-buyer-name"></div>
+              <div style="font-size:12px;color:rgba(13,33,69,0.45);" id="brief-posted-time"></div>
+            </div>
+          </div>
+
+          <p id="brief-description" style="font-size:15px;line-height:1.7;color:rgba(13,33,69,0.80);margin:20px 0 0;white-space:pre-line;"></p>
+
+          <div id="brief-details-grid" style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0;">
+            <div>
+              <div class="lbl">Budget</div>
+              <div style="font-size:15px;font-weight:700;color:#2d8a5e;margin-top:4px;" id="brief-budget"></div>
+            </div>
+            <div>
+              <div class="lbl">Deadline</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-deadline"></div>
+            </div>
+            <div>
+              <div class="lbl">Category</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-category-text"></div>
+            </div>
+            <div>
+              <div class="lbl">Skills</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;" id="brief-skills-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Not-found / error state -->
+        <div id="brief-not-found" style="display:none;text-align:center;padding:24px 8px;">
+          <p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 6px;">Brief not found</p>
+          <p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0 0 18px;">This Brief may have been closed or removed.</p>
+          <a href="/briefs.html" class="btn-green" style="display:inline-flex;">Browse Briefs</a>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════
+           SECTION 2 — PITCH SUBMISSION AREA
+      ══════════════════════════════════ -->
+      <div id="brief-pitch-section" style="display:none;"></div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       FOOTER
+  ══════════════════════════════════ -->
+  <footer style="border-top:1px solid #e2e8f0;padding:56px 20px 40px;">
+    <div style="max-width:1100px;margin:0 auto;">
+      <div style="display:grid;grid-template-columns:1fr;gap:36px;margin-bottom:40px;">
+
+        <div>
+          <a href="/" style="text-decoration:none;display:inline-block;margin-bottom:14px;">
+            <span style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;">
+              Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span>
+            </span>
+          </a>
+          <p style="font-size:14px;font-weight:400;color:rgba(13,33,69,0.50);line-height:1.6;max-width:280px;">
+            The complete freelance operating system for verified professionals in countries locked out of traditional payment networks.
+          </p>
+        </div>
+
+        <div>
+          <p style="font-size:11px;font-weight:700;color:#0d2145;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Platform</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;">
+            <a href="/#features"         class="text-navy/55 text-[14px] hover:text-navy transition-colors">Features</a>
+            <a href="/how-it-works.html" class="text-navy/55 text-[14px] hover:text-navy transition-colors">How It Works</a>
+            <a href="/browse.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Browse</a>
+            <a href="/briefs.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Briefs</a>
+            <a href="/pricing.html"      class="text-navy/55 text-[14px] hover:text-navy transition-colors">Pricing</a>
+            <a href="/signup.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Sign Up</a>
+            <a href="/login.html"        class="text-navy/55 text-[14px] hover:text-navy transition-colors">Log In</a>
+            <a href="/blog/index.html"   class="text-navy/55 text-[14px] hover:text-navy transition-colors">Blog</a>
+            <a href="/about.html"        class="text-navy/55 text-[14px] hover:text-navy transition-colors">About</a>
+          </div>
+        </div>
+
+        <div>
+          <p style="font-size:11px;font-weight:700;color:#0d2145;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Connect</p>
+          <div style="display:flex;gap:10px;">
+            <a id="social-twitter" href="#" target="_blank" rel="noopener" aria-label="Twitter/X" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);display:none;align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="#0d2145" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            </a>
+            <a id="social-linkedin" href="#" target="_blank" rel="noopener" aria-label="LinkedIn" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="#0d2145" viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>
+            </a>
+            <a id="social-instagram" href="#" target="_blank" rel="noopener" aria-label="Instagram" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="none" stroke="#0d2145" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="#0d2145"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid #e2e8f0;padding-top:24px;display:flex;flex-direction:column;gap:12px;align-items:flex-start;">
+        <p style="font-size:13px;font-weight:400;color:rgba(13,33,69,0.40);">
+          &copy; <span id="yr"></span> Kreddlo. All rights reserved.
+        </p>
+        <div style="display:flex;gap:20px;">
+          <a href="/privacy.html" class="text-navy/40 text-[13px] hover:text-navy transition-colors">Privacy Policy</a>
+          <a href="/terms.html"   class="text-navy/40 text-[13px] hover:text-navy transition-colors">Terms of Service</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast -->
+  <div id="brief-toast"></div>
+
+  <!-- ══════════════════════════════════
+       RESPONSIVE STYLE INJECTION
+       (Mobile-first base here in the stylesheet, not inline — inline
+       styles have higher specificity than min-width media queries and
+       would silently defeat them at every breakpoint. Same fix pattern
+       already applied on browse.html and briefs.html.)
+  ══════════════════════════════════ -->
+  <style>
+    #brief-title { font-size: 22px; }
+    #brief-details-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+    @media (min-width: 768px) {
+      #brief-title { font-size: 28px; }
+      #brief-details-grid { grid-template-columns: 1fr 1fr; gap: 20px; }
+      footer > div > div:first-child { grid-template-columns: 1.8fr 1fr 1fr !important; }
+    }
+
+    @media (min-width: 1024px) {
+      .md-flex-row { display: flex !important; }
+      #nav-public-desktop { display: flex; }
+      #hamburger { display: none !important; }
+    }
+    @media (max-width: 1023px) {
+      #nav-auth-desktop { display: none !important; }
+    }
+  </style>
+
+  <!-- ══════════════════════════════════
+       SCRIPTS
+  ══════════════════════════════════ -->
+  <script>
+    /* ────────────────────────────────────
+       MOBILE MENU
+    ──────────────────────────────────── */
+    function openMobileMenu() {
+      document.getElementById('mobile-panel').classList.add('open');
+      document.getElementById('menu-overlay').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      document.getElementById('hamburger').setAttribute('aria-expanded', 'true');
+    }
+    function closeMobileMenu() {
+      document.getElementById('mobile-panel').classList.remove('open');
+      document.getElementById('menu-overlay').classList.remove('open');
+      document.body.style.overflow = '';
+      document.getElementById('hamburger').setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeMobileMenu();
+    });
+
+    document.getElementById('yr').textContent = new Date().getFullYear();
+
+    /* ────────────────────────────────────
+       TOAST
+    ──────────────────────────────────── */
+    var toastTimer = null;
+    function showToast(msg) {
+      var el = document.getElementById('brief-toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2600);
+    }
+
+    /* ────────────────────────────────────
+       HELPERS
+    ──────────────────────────────────── */
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function initialsFor(name) {
+      if (!name) return '?';
+      var parts = String(name).trim().split(/\s+/);
+      if (!parts.length || !parts[0]) return '?';
+      if (parts.length === 1) return parts[0][0].toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function formatDeadline(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function toDateSafe(val) {
+      if (!val) return null;
+      if (typeof val === 'object' && typeof val._seconds === 'number') return new Date(val._seconds * 1000);
+      if (typeof val === 'object' && typeof val.seconds === 'number') return new Date(val.seconds * 1000);
+      var d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function relativeTime(val) {
+      var d = toDateSafe(val);
+      if (!d) return '';
+      var diffMs = Date.now() - d.getTime();
+      var diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) return 'Posted just now';
+      var diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return 'Posted ' + diffMin + (diffMin === 1 ? ' minute ago' : ' minutes ago');
+      var diffHr = Math.floor(diffMin / 60);
+      if (diffHr < 24) return 'Posted ' + diffHr + (diffHr === 1 ? ' hour ago' : ' hours ago');
+      var diffDay = Math.floor(diffHr / 24);
+      if (diffDay < 30) return 'Posted ' + diffDay + (diffDay === 1 ? ' day ago' : ' days ago');
+      return 'Posted on ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function categoryBadgeClass(cat) {
+      if (cat === 'Design') return 'badge-green';
+      if (cat === 'Development') return 'badge-blue';
+      if (cat === 'Marketing') return 'badge-amber';
+      return 'badge-grey';
+    }
+
+    function formatBudget(min, max) {
+      var fmt = function(n){ return '$' + Number(n || 0).toLocaleString('en-US'); };
+      return fmt(min) + '\u2013' + fmt(max);
+    }
+
+    /* ────────────────────────────────────
+       STATE
+    ──────────────────────────────────── */
+    var briefId = new URLSearchParams(window.location.search).get('id') || '';
+    var currentBrief = null;
+    var pitchAlreadyLoaded = false;
+
+    /* ────────────────────────────────────
+       LOAD BRIEF
+    ──────────────────────────────────── */
+    function loadBrief() {
+      if (!briefId) {
+        showNotFound();
+        return;
+      }
+      fetch('/.netlify/functions/get-brief?id=' + encodeURIComponent(briefId))
+        .then(function(res){
+          if (!res.ok) throw new Error('not-found');
+          return res.json();
+        })
+        .then(function(data){
+          if (!data || !data.brief) throw new Error('not-found');
+          currentBrief = data.brief;
+          renderBrief(currentBrief);
+        })
+        .catch(function(){
+          showNotFound();
+        });
+    }
+
+    function showNotFound() {
+      document.getElementById('brief-loading-skeleton').style.display = 'none';
+      document.getElementById('brief-detail-content').style.display = 'none';
+      document.getElementById('brief-not-found').style.display = 'block';
+      document.title = 'Brief Not Found — Kreddlo';
+    }
+
+    function renderBrief(b) {
+      document.getElementById('brief-loading-skeleton').style.display = 'none';
+      document.getElementById('brief-not-found').style.display = 'none';
+      document.getElementById('brief-detail-content').style.display = 'block';
+
+      var catBadge = document.getElementById('brief-category-badge');
+      catBadge.className = 'badge ' + categoryBadgeClass(b.category);
+      catBadge.textContent = b.category || 'Other';
+
+      var statusBadge = document.getElementById('brief-status-badge');
+      var isOpen = b.status === 'open';
+      statusBadge.className = 'badge ' + (isOpen ? 'badge-green' : 'badge-grey');
+      statusBadge.textContent = isOpen ? 'Open' : 'Closed';
+
+      document.getElementById('brief-pitch-count-text').textContent =
+        (b.pitchCount || 0) + (b.pitchCount === 1 ? ' Pitch submitted' : ' Pitches submitted');
+
+      document.getElementById('brief-title').textContent = b.title || '';
+      document.getElementById('brief-buyer-avatar').textContent = initialsFor(b.buyerName);
+      document.getElementById('brief-buyer-name').textContent = b.buyerName || 'Buyer';
+      document.getElementById('brief-posted-time').textContent = relativeTime(b.createdAt);
+      document.getElementById('brief-description').textContent = b.description || '';
+      document.getElementById('brief-budget').textContent = formatBudget(b.budgetMin, b.budgetMax);
+      document.getElementById('brief-deadline').textContent = formatDeadline(b.deadline);
+      document.getElementById('brief-category-text').textContent = b.category || 'Other';
+
+      var skillsList = document.getElementById('brief-skills-list');
+      var skills = b.skills || [];
+      skillsList.innerHTML = skills.length
+        ? skills.map(function(s){ return '<span class="brief-skill-chip">' + escapeHtml(s) + '</span>'; }).join('')
+        : '<span style="font-size:13px;color:rgba(13,33,69,0.40);">No specific skills listed</span>';
+
+      // Dynamic SEO
+      var safeTitle = (b.title || 'Brief') + ' — Kreddlo';
+      document.getElementById('page-title').textContent = safeTitle;
+      document.title = safeTitle;
+      var descText = (b.description || '').slice(0, 160);
+      var metaDesc = document.getElementById('meta-description');
+      if (metaDesc) metaDesc.setAttribute('content', descText);
+      var ogTitle = document.getElementById('og-title');
+      if (ogTitle) ogTitle.setAttribute('content', safeTitle);
+      var ogDesc = document.getElementById('og-description');
+      if (ogDesc) ogDesc.setAttribute('content', descText);
+      var ogUrl = document.getElementById('og-url');
+      if (ogUrl) ogUrl.setAttribute('content', 'https://kreddlo.space/brief.html?id=' + encodeURIComponent(b.id));
+      var canonical = document.getElementById('canonical');
+      if (canonical) canonical.setAttribute('href', 'https://kreddlo.space/brief.html?id=' + encodeURIComponent(b.id));
+
+      renderPitchSection();
+    }
+
+    /* ────────────────────────────────────
+       SECTION 2 — PITCH AREA (3-state logic)
+    ──────────────────────────────────── */
+    function renderPitchSection() {
+      var container = document.getElementById('brief-pitch-section');
+      if (!currentBrief) { container.style.display = 'none'; return; }
+
+      // Auth state not yet resolved — wait rather than flashing the wrong state.
+      if (!window._kreddloAuthResolved) { return; }
+
+      container.style.display = 'block';
+
+      var user = window._kreddloUser;
+      var role = window._kreddloRole;
+      var isOpen = currentBrief.status === 'open';
+
+      if (!isOpen) {
+        container.innerHTML = brieflyClosedCardHtml();
+        return;
+      }
+
+      if (!user) {
+        container.innerHTML = signInCardHtml();
+        return;
+      }
+
+      if (role === 'buyer') {
+        container.innerHTML = buyerCantPitchCardHtml();
+        return;
+      }
+
+      if (role === 'freelancer') {
+        if (!pitchAlreadyLoaded) {
+          pitchAlreadyLoaded = true;
+          container.innerHTML = pitchFormHtml();
+          wirePitchForm();
+        }
+        return;
+      }
+
+      // Logged in, role unresolved / unknown — treat conservatively as not eligible.
+      container.innerHTML = brieflyClosedCardHtml('Only freelancers can submit Pitches on Briefs.');
+    }
+    window._renderPitchSection = renderPitchSection;
+
+    function brieflyClosedCardHtml(customMsg) {
+      return (
+        '<div class="brief-detail-card" style="text-align:center;">' +
+          '<p style="font-weight:700;color:#0d2145;font-size:15px;margin:0;">' +
+            escapeHtml(customMsg || 'This Brief is no longer accepting Pitches.') +
+          '</p>' +
+        '</div>'
+      );
+    }
+
+    function signInCardHtml() {
+      var next = encodeURIComponent('/brief.html?id=' + briefId);
+      return (
+        '<div class="brief-detail-card" style="text-align:center;">' +
+          '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 16px;">Sign in to submit a Pitch</p>' +
+          '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">' +
+            '<a href="/login.html?next=' + next + '" class="btn-primary">Log In</a>' +
+            '<a href="/signup.html" class="btn-secondary">Create Account</a>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function buyerCantPitchCardHtml() {
+      return (
+        '<div class="brief-detail-card" style="text-align:center;">' +
+          '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 16px;">Buyers cannot submit Pitches. Post your own Brief instead.</p>' +
+          '<a href="/post-brief.html" class="btn-green" style="display:inline-flex;">Post a Brief</a>' +
+        '</div>'
+      );
+    }
+
+    function pitchFormHtml() {
+      var min = currentBrief.budgetMin || 0;
+      return (
+        '<div class="brief-detail-card" id="pitch-form-card">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
+            '<h2 style="font-size:18px;font-weight:800;color:#0d2145;margin:0;">Submit Your Pitch</h2>' +
+            '<span class="badge badge-grey" id="pitch-credits-pill" style="display:none;"></span>' +
+          '</div>' +
+
+          '<div style="margin-top:20px;">' +
+            '<label class="lbl" for="pitch-cover-letter">Cover Letter</label>' +
+            '<textarea id="pitch-cover-letter" class="input-field" style="min-height:160px;margin-top:6px;" maxlength="2000" placeholder="Introduce yourself and explain why you are the right person for this Brief. Be specific about your approach."></textarea>' +
+            '<div style="display:flex;justify-content:flex-end;font-size:12px;color:rgba(13,33,69,0.40);margin-top:4px;"><span id="cover-letter-count">0</span>/2000</div>' +
+          '</div>' +
+
+          '<div style="margin-top:16px;">' +
+            '<label class="lbl" for="pitch-budget">Your Proposed Budget (USD)</label>' +
+            '<input id="pitch-budget" type="number" class="input-field" style="margin-top:6px;" min="0" placeholder="e.g. $' + min + '" />' +
+            '<div style="font-size:12px;color:rgba(13,33,69,0.45);margin-top:4px;">Buyer\u2019s budget: ' + formatBudget(currentBrief.budgetMin, currentBrief.budgetMax) + '</div>' +
+          '</div>' +
+
+          '<div style="margin-top:16px;">' +
+            '<label class="lbl" for="pitch-timeline">Estimated Delivery Time</label>' +
+            '<input id="pitch-timeline" type="text" class="input-field" style="margin-top:6px;" maxlength="200" placeholder="e.g. 5 business days, 2 weeks" />' +
+          '</div>' +
+
+          '<div style="margin-top:16px;">' +
+            '<label class="lbl" for="pitch-portfolio">Portfolio or Sample Link (optional)</label>' +
+            '<input id="pitch-portfolio" type="text" class="input-field" style="margin-top:6px;" maxlength="2048" placeholder="https://..." />' +
+          '</div>' +
+
+          '<div id="pitch-error" style="display:none;font-size:13px;font-weight:600;color:#c81e1e;margin-top:16px;"></div>' +
+
+          '<button id="pitch-submit-btn" class="btn-green" style="width:100%;margin-top:20px;">Submit Pitch \u2014 1 Credit</button>' +
+          '<p style="font-size:12px;color:rgba(13,33,69,0.45);text-align:center;margin:10px 0 0;" id="pitch-credit-note">Submitting uses 1 Kreddlo Credit.</p>' +
+
+          '<div id="pitch-success" style="display:none;text-align:center;">' +
+            '<p style="font-weight:800;color:#0d2145;font-size:17px;margin:0 0 6px;">Pitch Submitted</p>' +
+            '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0 0 18px;">The buyer has been notified. You\u2019ll hear back if shortlisted.</p>' +
+            '<a href="/dashboard-briefs.html" class="btn-secondary" style="display:inline-flex;">View My Pitches</a>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function wirePitchForm() {
+      var coverLetterEl = document.getElementById('pitch-cover-letter');
+      var countEl        = document.getElementById('cover-letter-count');
+      coverLetterEl.addEventListener('input', function(){
+        countEl.textContent = coverLetterEl.value.length;
+      });
+
+      // Best-effort credits display — get-credits.js may not exist yet on
+      // every deploy; failures here must never block the Pitch form itself.
+      fetchCreditsForDisplay();
+
+      document.getElementById('pitch-submit-btn').addEventListener('click', submitPitch);
+    }
+
+    function fetchCreditsForDisplay() {
+      var pill = document.getElementById('pitch-credits-pill');
+      var note = document.getElementById('pitch-credit-note');
+      if (!window._kreddloUser || !window.auth || !window.auth.currentUser) return;
+
+      window.auth.currentUser.getIdToken().then(function(idToken){
+        return fetch('/.netlify/functions/get-credits', {
+          headers: { 'Authorization': 'Bearer ' + idToken }
+        });
+      }).then(function(res){
+        if (!res.ok) throw new Error('unavailable');
+        return res.json();
+      }).then(function(data){
+        var total = data && typeof data.totalAvailable === 'number' ? data.totalAvailable : null;
+        if (total === null) return;
+        pill.style.display = 'inline-flex';
+        pill.textContent = total + (total === 1 ? ' Credit remaining today' : ' Credits remaining today');
+        pill.className = 'badge ' + (total > 3 ? 'badge-green' : (total >= 1 ? 'badge-amber' : 'badge-red'));
+        if (note) note.textContent = 'Submitting uses 1 Kreddlo Credit. You have ' + total + ' remaining.';
+      }).catch(function(){
+        // Silently keep the generic note — no credits endpoint available yet.
+      });
+    }
+
+    function submitPitch() {
+      var btn = document.getElementById('pitch-submit-btn');
+      var errorEl = document.getElementById('pitch-error');
+      errorEl.style.display = 'none';
+
+      var coverLetter = document.getElementById('pitch-cover-letter').value.trim();
+      var proposedBudget = document.getElementById('pitch-budget').value;
+      var proposedTimeline = document.getElementById('pitch-timeline').value.trim();
+      var portfolioLink = document.getElementById('pitch-portfolio').value.trim();
+
+      if (coverLetter.length < 50) {
+        showFormError('Cover letter must be at least 50 characters.');
+        return;
+      }
+      if (coverLetter.length > 2000) {
+        showFormError('Cover letter must be under 2000 characters.');
+        return;
+      }
+      var budgetNum = Number(proposedBudget);
+      if (!proposedBudget || !isFinite(budgetNum) || budgetNum <= 0) {
+        showFormError('Please enter a valid proposed budget.');
+        return;
+      }
+      if (!proposedTimeline) {
+        showFormError('Please enter an estimated delivery time.');
+        return;
+      }
+      if (portfolioLink && portfolioLink.indexOf('https://') !== 0) {
+        showFormError('Portfolio link must start with https://');
+        return;
+      }
+      if (!window._kreddloUser || !window.auth || !window.auth.currentUser) {
+        showFormError('Please log in again to submit a Pitch.');
+        return;
+      }
+
+      btn.disabled = true;
+      var originalHtml = btn.innerHTML;
+      btn.innerHTML = '<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Submitting...';
+
+      window.auth.currentUser.getIdToken().then(function(idToken){
+        return fetch('/.netlify/functions/submit-pitch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+          body: JSON.stringify({
+            briefId: briefId,
+            coverLetter: coverLetter,
+            proposedBudget: budgetNum,
+            proposedTimeline: proposedTimeline,
+            portfolioLink: portfolioLink || undefined
+          })
+        }).then(function(res){
+          return res.json().then(function(data){ return { ok: res.ok, status: res.status, data: data }; });
+        });
+      }).then(function(result){
+        if (!result.ok) {
+          if (result.status === 402) {
+            showFormError((result.data && result.data.error) || 'No Kreddlo Credits remaining.', true);
+          } else {
+            showFormError((result.data && result.data.error) || 'Something went wrong. Please try again.');
+          }
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+          return;
+        }
+        // Success — hide the form fields, show the success message
+        var card = document.getElementById('pitch-form-card');
+        Array.prototype.forEach.call(card.children, function(child){
+          if (child.id !== 'pitch-success') child.style.display = 'none';
+        });
+        document.getElementById('pitch-success').style.display = 'block';
+        showToast('Pitch submitted successfully.');
+      }).catch(function(){
+        showFormError('Network error. Please check your connection and try again.');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      });
+    }
+
+    function showFormError(msg, withCreditsLink) {
+      var errorEl = document.getElementById('pitch-error');
+      errorEl.innerHTML = escapeHtml(msg) + (withCreditsLink
+        ? ' <a href="/credits.html" style="color:#c81e1e;font-weight:700;text-decoration:underline;">Get more Credits</a>'
+        : '');
+      errorEl.style.display = 'block';
+    }
+
+    /* ────────────────────────────────────
+       INIT
+    ──────────────────────────────────── */
+    loadBrief();
+  </script>
+</body>
+</html>

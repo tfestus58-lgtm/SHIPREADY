@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0d2145" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Kreddlo" />
+<link rel="apple-touch-icon" href="/assets/kreddlo-192.png" />
+<title>Kreddlo Credits — Kreddlo</title>
+<script src="/assets/shared.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin/>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
+        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
+        cream:'#f8f9fb',border:'#e2e8f0'
+      },
+      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
+    }
+  }
+};
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+
+/* Glass */
+.glass{background:rgba(255,255,255,0.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.35);border-radius:20px;box-shadow:0 8px 32px rgba(13,33,69,0.08)}
+
+/* Buttons */
+.btn-green{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#2d8a5e;color:#fff;border:none;border-radius:50px;padding:11px 24px;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;box-shadow:0 4px 16px rgba(45,138,94,0.30);transition:transform .15s,box-shadow .15s,background .15s}
+.btn-green:hover{background:#236b49;transform:translateY(-1px);box-shadow:0 6px 20px rgba(45,138,94,0.38)}
+.btn-green:active{transform:translateY(0)}
+.btn-green:disabled{opacity:0.6;cursor:not-allowed;transform:none!important}
+
+.btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:#0d2145;border:2px solid #0d2145;border-radius:50px;padding:10px 22px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;transition:transform .15s,background .15s,color .15s}
+.btn-secondary:hover{background:#0d2145;color:#fff;transform:translateY(-1px)}
+.btn-secondary:active{transform:translateY(0)}
+.btn-secondary:disabled{opacity:0.6;cursor:not-allowed;transform:none!important}
+.btn-sm{font-size:13px!important;padding:9px 18px!important}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:3px 11px;border-radius:50px;font-size:11px;font-weight:600;letter-spacing:.3px;white-space:nowrap;flex-shrink:0}
+.badge-green{background:#e8f5ef;color:#2d8a5e}
+.badge-blue{background:#e8f0fe;color:#1a56db}
+.badge-amber{background:#fff3cd;color:#856404}
+.badge-red{background:#fde8e8;color:#c81e1e}
+.badge-grey{background:rgba(13,33,69,0.07);color:rgba(13,33,69,0.55)}
+
+/* Skeleton */
+.sk{background:linear-gradient(90deg,#f0f2f6 25%,#e8eaf0 50%,#f0f2f6 75%);background-size:200% 100%;animation:sk 1.5s infinite linear;border-radius:8px}
+@keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* Nav */
+.nav-link{display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;font-size:13px;font-weight:600;color:rgba(255,255,255,0.52);text-decoration:none;transition:background .15s,color .15s;cursor:pointer;border:none;background:transparent;width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-link:hover{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.88)}
+.nav-link.active{background:rgba(45,138,94,0.22);color:#fff;border-left:3px solid #3dbd7a;padding-left:10px}
+
+/* Stat card — copied exactly from dashboard.html */
+.stat-card{border-radius:20px;padding:22px;transition:box-shadow .2s,transform .2s;cursor:default;overflow:visible;}
+.stat-card:hover{box-shadow:0 10px 40px rgba(13,33,69,0.13);transform:translateY(-2px)}
+.stat-val{font-size:34px;font-weight:800;letter-spacing:-1px;line-height:1.1}
+.stat-lbl{font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:rgba(13,33,69,0.48);margin-top:5px}
+.stat-trend{font-size:12px;font-weight:600;margin-top:9px;display:flex;align-items:center;gap:4px}
+
+/* Mobile menu */
+.slide-in{transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1)}
+.slide-in.open{transform:translateX(0)}
+.dim{opacity:0;pointer-events:none;transition:opacity .28s}
+.dim.open{opacity:1;pointer-events:all}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:#091830;color:#fff;border-radius:50px;padding:11px 22px;font-size:13px;font-weight:600;z-index:3000;opacity:0;pointer-events:none;transition:transform .25s,opacity .25s;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* Fade up */
+.fu{opacity:0;transform:translateY(18px);animation:fu .45s ease forwards}
+@keyframes fu{to{opacity:1;transform:translateY(0)}}
+.fu-1{animation-delay:.05s}.fu-2{animation-delay:.12s}.fu-3{animation-delay:.19s}.fu-4{animation-delay:.26s}
+
+/* Blobs */
+.blob-n{position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(13,33,69,0.09) 0%,transparent 70%);top:-100px;right:-100px;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0;will-change:transform}
+.blob-g{position:absolute;width:440px;height:440px;background:radial-gradient(circle,rgba(45,138,94,0.07) 0%,transparent 70%);bottom:-60px;left:-80px;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0;will-change:transform}
+
+/* Section heading */
+.section-heading{font-size:18px;font-weight:800;color:#0d2145;margin:0 0 16px;}
+
+/* Bundle card */
+.bundle-card{background:#fff;border-radius:20px;border:1.5px solid #e2e8f0;padding:24px 20px;transition:border-color .2s,box-shadow .2s,transform .2s;position:relative;min-width:0;}
+.bundle-card:hover{border-color:#2d8a5e;box-shadow:0 6px 24px rgba(45,138,94,0.14);transform:translateY(-2px);}
+.bundle-name{font-size:16px;font-weight:800;color:#0d2145;}
+.bundle-credits{font-size:32px;font-weight:800;color:#2d8a5e;line-height:1.15;margin-top:8px;}
+.bundle-price{font-size:14px;font-weight:600;color:rgba(13,33,69,0.55);margin-top:4px;}
+
+/* Purchase history — mobile cards / desktop table (same pattern as dashboard-earnings.html payout table) */
+.order-card{padding:14px 16px;border-bottom:1px solid #f0f2f6;}
+.order-card:last-child{border-bottom:none;}
+.order-row1{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;}
+.order-row2{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.order-table{width:100%;border-collapse:collapse;}
+.order-table th{background:rgba(13,33,69,0.02);text-align:left;padding:12px 20px;font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:rgba(13,33,69,0.48);}
+.order-table td{padding:14px 20px;border-bottom:1px solid #f0f2f6;font-size:14px;font-weight:500;color:#0d2145;}
+.order-table tr:last-child td{border-bottom:none;}
+
+/* Empty state */
+.empty-state{padding:40px 24px;text-align:center;border-radius:20px;}
+
+/* Responsive */
+@media(min-width:1024px){
+  #sidebar{display:flex!important}
+  #hamburger{display:none!important}
+  #main-wrap{margin-left:248px;width:calc(100% - 248px);max-width:none;overflow-x:visible}
+  #stat-cards{grid-template-columns:repeat(3,1fr)!important}
+  #bundle-cards{grid-template-columns:repeat(3,1fr)!important}
+  #history-cards-mobile{display:none!important}
+  #history-table-wrap{display:block!important}
+}
+@media(min-width:768px){
+  #page-content{padding:32px!important;width:100%!important;max-width:none!important;margin:0!important;box-sizing:border-box}
+}
+</style>
+<style id="mobile-first-patch">
+html{overflow-x:hidden!important}
+body{overflow-x:hidden!important}
+#page-content{overflow:visible!important;padding-left:18px!important;padding-right:18px!important;min-height:100dvh!important}
+#hamburger{display:flex!important;min-width:44px!important;min-height:44px!important}
+@media(min-width:1024px){#hamburger{display:none!important}#sidebar{display:flex!important}}
+#toast{bottom:max(24px,env(safe-area-inset-bottom,24px))!important}
+#sidebar{height:100dvh!important;max-height:100dvh!important;padding-top:max(30px,env(safe-area-inset-top))!important;padding-bottom:max(20px,env(safe-area-inset-bottom))!important}
+#stat-cards{display:grid;grid-template-columns:1fr;gap:13px;}
+@media(min-width:640px) and (max-width:1023px){#stat-cards{grid-template-columns:1fr 1fr;}}
+#bundle-cards{display:grid;grid-template-columns:1fr;gap:16px;}
+@media(min-width:640px) and (max-width:1023px){#bundle-cards{grid-template-columns:1fr 1fr;}}
+#history-table-wrap{display:none;}
+@media(max-width:400px){.stat-val{font-size:26px!important;}.bundle-credits{font-size:26px!important;}}
+</style>
+</head>
+<body style="visibility:hidden" class="overflow-x-hidden">
+
+<!-- MOBILE BACKDROP -->
+<div id="mobile-dim" class="dim" onclick="closeMobileMenu()" style="position:fixed;inset:0;z-index:400;background:rgba(9,24,48,0.58);"></div>
+
+<!-- MOBILE MENU -->
+<div id="mobile-menu" class="slide-in" style="position:fixed;top:0;right:0;width:272px;height:100%;height:100dvh;background:#091830;z-index:500;padding:30px 22px;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+  <button onclick="closeMobileMenu()" style="position:absolute;top:18px;right:18px;width:34px;height:34px;background:rgba(255,255,255,0.08);border:none;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <div style="font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;margin-bottom:36px;margin-top:2px;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></div>
+  <nav id="mobile-nav" style="flex:1;display:flex;flex-direction:column;gap:3px;"></nav>
+  <button id="mb-signout" style="margin-top:20px;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:11px;padding:11px 15px;color:rgba(255,255,255,0.58);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s,color .2s;" onmouseover="this.style.background='rgba(255,255,255,0.10)';this.style.color='#fff'" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.58)'">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Sign Out
+  </button>
+</div>
+
+<!-- DESKTOP SIDEBAR -->
+<aside id="sidebar" style="position:fixed;top:0;left:0;width:248px;height:100%;height:100dvh;background:#091830;z-index:300;padding:30px 18px;display:none;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+  <a href="/dashboard.html" style="font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;text-decoration:none;display:block;margin-bottom:44px;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></a>
+  <nav id="desktop-nav" style="flex:1;display:flex;flex-direction:column;gap:3px;"></nav>
+  <button id="dt-signout" style="margin-top:auto;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:11px;padding:11px 15px;color:rgba(255,255,255,0.58);font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s,color .2s;" onmouseover="this.style.background='rgba(255,255,255,0.10)';this.style.color='#fff'" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.58)'">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Sign Out
+  </button>
+</aside>
+
+<!-- MAIN WRAPPER -->
+<div id="main-wrap" style="min-height:100dvh;display:flex;flex-direction:column;">
+
+  <!-- TOPBAR -->
+  <header style="position:sticky;top:0;z-index:200;height:64px;background:rgba(248,249,251,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;padding:0 20px;">
+    <h1 style="font-size:17px;font-weight:800;color:#0d2145;letter-spacing:-0.3px;margin:0;">Kreddlo Credits</h1>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button onclick="window.location.href='/notifications.html'" style="position:relative;width:38px;height:38px;background:transparent;border:none;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(13,33,69,0.06)'" onmouseout="this.style.background='transparent'">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#0d2145" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span id="bell-dot" style="display:none;position:absolute;top:7px;right:7px;width:8px;height:8px;background:#c81e1e;border-radius:50%;border:2px solid #f8f9fb;"></span>
+      </button>
+      <div id="user-avatar" style="width:35px;height:35px;background:linear-gradient(135deg,#2d8a5e,#3dbd7a);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;">F</div>
+      <button id="hamburger" aria-label="Open menu" onclick="openMobileMenu()" style="width:38px;height:38px;background:transparent;border:none;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(13,33,69,0.06)'" onmouseout="this.style.background='transparent'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d2145" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- PAGE CONTENT -->
+  <main id="page-content" style="flex:1;padding:22px 18px;width:100%;position:relative;">
+    <div class="blob-n"></div>
+    <div class="blob-g"></div>
+    <div style="position:relative;z-index:1;">
+
+      <!-- Heading -->
+      <div class="fu fu-1" style="margin-bottom:18px;">
+        <h2 style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;margin:0 0 5px;">Kreddlo Credits</h2>
+        <p style="font-size:14px;font-weight:500;color:rgba(13,33,69,0.52);margin:0;">Credits let you submit Pitches on Briefs. You get 10 free every day.</p>
+      </div>
+
+      <!-- Monthly free credit banner — shown only when admin has enabled it (config/platform) -->
+      <div id="monthly-credit-banner" class="fu fu-1" style="display:none;margin-bottom:18px;padding:12px 16px;background:rgba(45,138,94,0.08);border:1px solid rgba(45,138,94,0.18);border-radius:14px;">
+        <p style="font-size:13px;font-weight:600;color:#2d8a5e;margin:0;display:flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          <span id="monthly-credit-banner-text">You get bonus free Credits every month.</span>
+        </p>
+      </div>
+
+      <!-- SECTION 1: Credits overview -->
+      <div id="stat-cards" class="fu fu-1" style="margin-bottom:12px;">
+
+        <div class="stat-card" style="background:linear-gradient(135deg,rgba(45,138,94,0.08),rgba(255,255,255,0.85));border:1px solid rgba(45,138,94,0.16);box-shadow:0 4px 24px rgba(45,138,94,0.08);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="width:38px;height:38px;background:rgba(45,138,94,0.12);border-radius:11px;display:flex;align-items:center;justify-content:center;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            </div>
+            <span class="badge badge-green">Free daily</span>
+          </div>
+          <div class="stat-val sk" id="stat-daily" style="color:#2d8a5e;height:34px;width:40%;"></div>
+          <div class="stat-lbl">Daily Credits</div>
+          <div class="stat-trend" style="color:rgba(13,33,69,0.45);">Resets at midnight UTC</div>
+        </div>
+
+        <div class="stat-card" style="background:linear-gradient(135deg,rgba(13,33,69,0.04),rgba(255,255,255,0.85));border:1px solid rgba(255,255,255,0.55);box-shadow:0 4px 24px rgba(13,33,69,0.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="width:38px;height:38px;background:rgba(13,33,69,0.07);border-radius:11px;display:flex;align-items:center;justify-content:center;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0d2145" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
+            <span class="badge badge-navy" style="background:rgba(13,33,69,0.08);color:#0d2145;">Purchased</span>
+          </div>
+          <div class="stat-val sk" id="stat-purchased" style="color:#0d2145;height:34px;width:40%;"></div>
+          <div class="stat-lbl">Purchased Credits</div>
+          <div class="stat-trend" style="color:rgba(13,33,69,0.45);">Never expire</div>
+        </div>
+
+        <div class="stat-card" style="background:linear-gradient(135deg,rgba(45,138,94,0.08),rgba(255,255,255,0.85));border:1px solid rgba(45,138,94,0.16);box-shadow:0 4px 24px rgba(45,138,94,0.08);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="width:38px;height:38px;background:rgba(45,138,94,0.12);border-radius:11px;display:flex;align-items:center;justify-content:center;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </div>
+            <span class="badge badge-green">Combined</span>
+          </div>
+          <div class="stat-val sk" id="stat-total" style="color:#2d8a5e;height:34px;width:40%;"></div>
+          <div class="stat-lbl">Total Available</div>
+          <div class="stat-trend" style="color:rgba(13,33,69,0.45);">Daily + Purchased balance</div>
+        </div>
+
+      </div>
+
+      <!-- Countdown to daily reset -->
+      <div class="fu fu-1" style="margin-bottom:26px;">
+        <p id="reset-countdown" style="font-size:13px;font-weight:600;color:rgba(13,33,69,0.55);margin:0;">Daily credits reset in --</p>
+      </div>
+
+      <!-- SECTION 2: Purchase Credits -->
+      <h3 class="section-heading fu fu-2">Get More Credits</h3>
+      <div id="bundle-cards" class="fu fu-2" style="margin-bottom:30px;">
+
+        <div class="bundle-card">
+          <div class="bundle-name">Starter</div>
+          <div class="bundle-credits" id="bundle-starter-credits">50 Credits</div>
+          <div class="bundle-price" id="bundle-starter-price">$4.99</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
+            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('starter','flutterwave',this)">Pay with Flutterwave</button>
+            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('starter','stripe',this)">Pay with Stripe</button>
+          </div>
+        </div>
+
+        <div class="bundle-card">
+          <div class="bundle-name">Pro</div>
+          <div class="bundle-credits" id="bundle-pro-credits">150 Credits</div>
+          <div class="bundle-price" id="bundle-pro-price">$9.99</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
+            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('pro','flutterwave',this)">Pay with Flutterwave</button>
+            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('pro','stripe',this)">Pay with Stripe</button>
+          </div>
+        </div>
+
+        <div class="bundle-card">
+          <div style="position:absolute;top:-10px;right:20px;"><span class="badge badge-green">Best Value</span></div>
+          <div class="bundle-name">Power</div>
+          <div class="bundle-credits" id="bundle-power-credits">500 Credits</div>
+          <div class="bundle-price" id="bundle-power-price">$24.99</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
+            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('power','flutterwave',this)">Pay with Flutterwave</button>
+            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('power','stripe',this)">Pay with Stripe</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- SECTION 3: Purchase history -->
+      <h3 class="section-heading fu fu-3">Purchase History</h3>
+
+      <!-- Mobile: card list -->
+      <div id="history-cards-mobile" class="glass fu fu-3" style="margin-bottom:30px;overflow:hidden;"></div>
+
+      <!-- Desktop: table -->
+      <div id="history-table-wrap" class="glass fu fu-3" style="margin-bottom:30px;overflow-x:auto;">
+        <table class="order-table">
+          <thead>
+            <tr><th>Date</th><th>Bundle</th><th>Credits</th><th>Amount</th><th>Status</th></tr>
+          </thead>
+          <tbody id="history-table-body"></tbody>
+        </table>
+      </div>
+
+      <div id="history-empty" class="empty-state glass fu fu-3" style="display:none;margin-bottom:30px;">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(13,33,69,0.30)" stroke-width="1.5" stroke-linecap="round" style="margin:0 auto 12px;display:block;"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <p style="font-size:14px;font-weight:600;color:rgba(13,33,69,0.50);margin:0;">No purchases yet.</p>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+var CURRENT_UID = null;
+var resetIntervalId = null;
+var creditsResetAtDate = null;
+
+/* ══════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════ */
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function toDateSafe(val) {
+  if (!val) return null;
+  if (typeof val === 'object' && typeof val._seconds === 'number') return new Date(val._seconds * 1000);
+  if (typeof val === 'object' && typeof val.seconds === 'number') return new Date(val.seconds * 1000);
+  var d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+function fmtDate(val) {
+  var d = toDateSafe(val);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmtMoney(n) {
+  n = Number(n) || 0;
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function capitalize(s) {
+  s = String(s || '');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function orderStatusBadge(status) {
+  if (status === 'completed' || status === 'success') return '<span class="badge badge-green">Completed</span>';
+  if (status === 'failed' || status === 'cancelled') return '<span class="badge badge-red">' + escHtml(capitalize(status)) + '</span>';
+  return '<span class="badge badge-amber">Pending</span>';
+}
+
+/* ══════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════ */
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3500);
+}
+
+/* ══════════════════════════════════════════════
+   BODY SCROLL LOCK (iOS-safe)
+══════════════════════════════════════════════ */
+function lockBodyScroll() {
+  if (document.body.classList.contains('body-scroll-locked')) return;
+  window._scrollLockY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = '-' + window._scrollLockY + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
+  document.body.classList.add('body-scroll-locked');
+}
+function unlockBodyScroll() {
+  if (!document.body.classList.contains('body-scroll-locked')) return;
+  document.body.classList.remove('body-scroll-locked');
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+  window.scrollTo(0, window._scrollLockY || 0);
+  window._scrollLockY = 0;
+}
+
+/* ══════════════════════════════════════════════
+   MOBILE MENU
+══════════════════════════════════════════════ */
+function openMobileMenu() {
+  document.getElementById('mobile-menu').classList.add('open');
+  document.getElementById('mobile-dim').classList.add('open');
+  lockBodyScroll();
+}
+function closeMobileMenu() {
+  document.getElementById('mobile-menu').classList.remove('open');
+  document.getElementById('mobile-dim').classList.remove('open');
+  unlockBodyScroll();
+}
+
+/* ══════════════════════════════════════════════
+   NAV — identical freelancer sidebar array used across
+   dashboard.html / dashboard-briefs.html. "Credits" is
+   highlighted as active on this page via buildNav below.
+══════════════════════════════════════════════ */
+var NAV = [
+  { label:'Dashboard',     href:'/dashboard.html',          icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' },
+  { label:'Earnings',      href:'/dashboard-earnings.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
+  { label:'Projects',      href:'/dashboard-projects.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' },
+  { label:'Invoices',      href:'/dashboard-invoices.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' },
+  { label:'Store',         href:'/store.html',              icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>' },
+  { label:'Products',      href:'/dashboard-products.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>' },
+  { label:'Affiliate',     href:'/dashboard-affiliate.html',icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+  { label:'Contracts',     href:'/dashboard-contracts.html',icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>' },
+  { label:'Briefs',        href:'/dashboard-briefs.html',   icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>' },
+  { label:'Withdraw',      href:'/dashboard-withdraw.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' },
+  { label:'Browse',        href:'/browse.html',             icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' },
+  { label:'Settings',      href:'/dashboard-settings.html', icon:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>' }
+];
+
+function buildNav(uid, affiliateEnabled) {
+  var items = NAV.filter(function(n) {
+    if (n.label === 'Affiliate') return affiliateEnabled === true;
+    return true;
+  });
+  var html = items.map(function(n) {
+    var href = n.href;
+    if (n.label === 'Store' && uid) href = '/store.html?uid=' + uid;
+    // "Credits" is not yet a dedicated NAV entry (added in a later step) —
+    // this page highlights "Briefs" as the closest related section is left
+    // un-highlighted rather than falsely marking an unrelated link active.
+    return '<a href="'+href+'" class="nav-link" onclick="closeMobileMenu()">'+n.icon+n.label+'</a>';
+  }).join('');
+  document.getElementById('mobile-nav').innerHTML  = html;
+  document.getElementById('desktop-nav').innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════
+   CREDITS OVERVIEW — loads from get-credits.js
+══════════════════════════════════════════════ */
+function renderCreditStat(el, value) {
+  el.classList.remove('sk');
+  el.style.width = '';
+  el.style.height = '';
+  el.textContent = value;
+}
+
+async function loadCreditsOverview() {
+  if (!window.auth || !window.auth.currentUser) return;
+  try {
+    var idToken = await window.auth.currentUser.getIdToken();
+    var res = await fetch('/.netlify/functions/get-credits', {
+      headers: { 'Authorization': 'Bearer ' + idToken }
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load credits.');
+
+    var daily      = Number(data.dailyCredits) || 0;
+    var purchased  = Number(data.purchasedCredits) || 0;
+    var total      = Number(data.totalAvailable);
+    if (!Number.isFinite(total)) total = daily + purchased;
+
+    renderCreditStat(document.getElementById('stat-daily'), daily);
+    renderCreditStat(document.getElementById('stat-purchased'), purchased);
+    renderCreditStat(document.getElementById('stat-total'), total);
+
+    creditsResetAtDate = toDateSafe(data.creditsResetAt);
+    startResetCountdown();
+  } catch (err) {
+    console.error('[loadCreditsOverview]', err);
+    renderCreditStat(document.getElementById('stat-daily'), '—');
+    renderCreditStat(document.getElementById('stat-purchased'), '—');
+    renderCreditStat(document.getElementById('stat-total'), '—');
+    document.getElementById('reset-countdown').textContent = 'Could not load credits. Please refresh.';
+    showToast('Could not load your Credits balance.');
+  }
+}
+
+/* ══════════════════════════════════════════════
+   COUNTDOWN TO DAILY RESET — resets at next UTC midnight
+══════════════════════════════════════════════ */
+function nextUtcMidnight() {
+  var now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+}
+function updateResetCountdown() {
+  var target = nextUtcMidnight();
+  var diffMs = target.getTime() - Date.now();
+  if (diffMs < 0) diffMs = 0;
+  var hours = Math.floor(diffMs / 3600000);
+  var mins  = Math.floor((diffMs % 3600000) / 60000);
+  document.getElementById('reset-countdown').textContent =
+    'Daily credits reset in ' + hours + (hours === 1 ? ' hour ' : ' hours ') + mins + (mins === 1 ? ' minute' : ' minutes');
+}
+function startResetCountdown() {
+  updateResetCountdown();
+  if (resetIntervalId) clearInterval(resetIntervalId);
+  resetIntervalId = setInterval(updateResetCountdown, 60000);
+}
+
+/* ══════════════════════════════════════════════
+   PLATFORM CONFIG — bundle pricing + monthly free credit banner,
+   read live from config/platform (admin-configurable in admin.html
+   under "Kreddlo Credits"). Display only — purchase-credits.js
+   always re-reads config/platform server-side as the price source
+   of truth, so a stale client read here can never overcharge.
+══════════════════════════════════════════════ */
+function fmtCreditPrice(amount) {
+  var n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return '$' + n.toFixed(2).replace(/\.00$/, '');
+}
+
+async function loadCreditPlatformConfig() {
+  if (!window.db || !window._fsQ) return;
+  try {
+    var snap = await window._fsQ.getDoc(window._fsQ.doc(window.db, 'config', 'platform'));
+    if (!snap.exists()) return;
+    var d = snap.data();
+
+    var bundles = [
+      { key: 'starter', creditsKey: 'creditBundleStarterCredits', priceKey: 'creditBundleStarterPrice' },
+      { key: 'pro',     creditsKey: 'creditBundleProCredits',     priceKey: 'creditBundleProPrice' },
+      { key: 'power',   creditsKey: 'creditBundlePowerCredits',   priceKey: 'creditBundlePowerPrice' }
+    ];
+    bundles.forEach(function(b) {
+      var creditsVal = Number(d[b.creditsKey]);
+      var priceVal   = fmtCreditPrice(d[b.priceKey]);
+      var creditsEl  = document.getElementById('bundle-' + b.key + '-credits');
+      var priceEl    = document.getElementById('bundle-' + b.key + '-price');
+      if (creditsEl && Number.isFinite(creditsVal) && creditsVal > 0) {
+        creditsEl.textContent = creditsVal + ' Credits';
+      }
+      if (priceEl && priceVal) {
+        priceEl.textContent = priceVal;
+      }
+    });
+
+    if (d.monthlyFreeCreditEnabled === true && Number(d.monthlyFreeCreditAmount) > 0) {
+      var banner = document.getElementById('monthly-credit-banner');
+      var bannerText = document.getElementById('monthly-credit-banner-text');
+      if (bannerText) {
+        bannerText.textContent = 'You get ' + Number(d.monthlyFreeCreditAmount) + ' bonus free Credits every month.';
+      }
+      if (banner) banner.style.display = 'block';
+    }
+  } catch (err) {
+    console.error('[loadCreditPlatformConfig]', err);
+    // Fail silently — bundle cards keep their default values, purchases
+    // still work correctly since the server re-checks pricing itself.
+  }
+}
+
+/* ══════════════════════════════════════════════
+   PURCHASE — calls purchase-credits.js, redirects
+   to the gateway's hosted checkout URL on success
+══════════════════════════════════════════════ */
+async function purchaseBundle(bundle, gateway, btnEl) {
+  if (!window.auth || !window.auth.currentUser) {
+    showToast('Please log in again.');
+    return;
+  }
+  var card = btnEl ? btnEl.closest('.bundle-card') : null;
+  var allButtons = card ? card.querySelectorAll('button') : [btnEl];
+  allButtons.forEach(function(b) { b.disabled = true; });
+  var originalText = btnEl ? btnEl.textContent : '';
+  if (btnEl) btnEl.textContent = 'Please wait…';
+
+  try {
+    var idToken = await window.auth.currentUser.getIdToken();
+    var res = await fetch('/.netlify/functions/purchase-credits', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + idToken
+      },
+      body: JSON.stringify({ bundle: bundle, gateway: gateway })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.checkoutUrl) {
+      throw new Error(data.error || 'Could not start checkout. Please try again.');
+    }
+    window.location.href = data.checkoutUrl;
+  } catch (err) {
+    console.error('[purchaseBundle]', err);
+    showToast(err.message || 'Could not start checkout. Please try again.');
+    allButtons.forEach(function(b) { b.disabled = false; });
+    if (btnEl) btnEl.textContent = originalText;
+  }
+}
+
+/* ══════════════════════════════════════════════
+   PURCHASE HISTORY — loads creditOrders for this user
+══════════════════════════════════════════════ */
+function skeletonOrderCard() {
+  return '<div class="order-card"><div class="sk" style="height:13px;width:45%;margin-bottom:8px;"></div><div class="sk" style="height:11px;width:30%;"></div></div>';
+}
+function skeletonOrderRow() {
+  return '<tr><td colspan="5"><div class="sk" style="height:14px;width:100%;"></div></td></tr>';
+}
+
+function renderHistoryEmpty() {
+  document.getElementById('history-cards-mobile').innerHTML = '';
+  document.getElementById('history-table-body').innerHTML = '';
+  document.getElementById('history-empty').style.display = 'block';
+}
+
+function renderHistory(orders) {
+  var emptyEl = document.getElementById('history-empty');
+  if (!orders.length) {
+    renderHistoryEmpty();
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  document.getElementById('history-cards-mobile').innerHTML = orders.map(function(o) {
+    return (
+      '<div class="order-card">' +
+        '<div class="order-row1">' +
+          '<span style="font-size:14px;font-weight:700;color:#0d2145;">' + escHtml(capitalize(o.bundle)) + ' — ' + escHtml(o.credits) + ' Credits</span>' +
+          orderStatusBadge(o.status) +
+        '</div>' +
+        '<div class="order-row2">' +
+          '<span style="font-size:12px;color:rgba(13,33,69,0.55);">' + fmtDate(o.createdAt) + '</span>' +
+          '<span style="font-size:13px;font-weight:600;color:#0d2145;">' + fmtMoney(o.amount) + '</span>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  document.getElementById('history-table-body').innerHTML = orders.map(function(o) {
+    return (
+      '<tr>' +
+        '<td>' + fmtDate(o.createdAt) + '</td>' +
+        '<td>' + escHtml(capitalize(o.bundle)) + '</td>' +
+        '<td>' + escHtml(o.credits) + '</td>' +
+        '<td>' + fmtMoney(o.amount) + '</td>' +
+        '<td>' + orderStatusBadge(o.status) + '</td>' +
+      '</tr>'
+    );
+  }).join('');
+}
+
+async function loadPurchaseHistory(uid) {
+  document.getElementById('history-cards-mobile').innerHTML = skeletonOrderCard().repeat(3);
+  document.getElementById('history-table-body').innerHTML = skeletonOrderRow().repeat(3);
+  document.getElementById('history-empty').style.display = 'none';
+
+  if (!window.db || !window._fsQ) return;
+  var fsQ = window._fsQ;
+
+  try {
+    var snap = await fsQ.getDocs(
+      fsQ.query(
+        fsQ.collection(window.db, 'creditOrders'),
+        fsQ.where('uid', '==', uid),
+        fsQ.orderBy('createdAt', 'desc'),
+        fsQ.limit(20)
+      )
+    );
+    var orders = snap.docs.map(function(d) {
+      var data = d.data();
+      data.id = d.id;
+      return data;
+    });
+    renderHistory(orders);
+  } catch (err) {
+    console.error('[loadPurchaseHistory]', err);
+    renderHistoryEmpty();
+    showToast('Could not load purchase history.');
+  }
+}
+
+/* Safety: force-hide loading overlay after 10s if auth/boot stalls */
+(function() {
+  setTimeout(function() { document.body.style.visibility = 'visible'; }, 10000);
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/service-worker.js').catch(function(err) {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
+</script>
+
+<script type="module">
+  import { initializeApp }     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+  const FIREBASE_CONFIG = {
+    apiKey:            'AIzaSyADHwnG1Im3IF5VetCilku1WeefjUR8Zkk',
+    authDomain:        'kreddlo.firebaseapp.com',
+    projectId:         'kreddlo',
+    storageBucket:     'kreddlo.firebasestorage.app',
+    messagingSenderId: '764500458567',
+    appId:             '1:764500458567:web:2389d5cf8c688caafd0562',
+  };
+  const app  = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+  window.db  = db;
+  window.auth = auth;
+  window._fsQ = { collection, query, where, orderBy, limit, getDocs, getDoc, doc };
+
+  window.handleLogout = function() {
+    signOut(auth).then(function(){ window.location.href = '/login.html'; })
+      .catch(function(){ window.location.href = '/login.html'; });
+  };
+  document.getElementById('mb-signout').onclick = window.handleLogout;
+  document.getElementById('dt-signout').onclick = window.handleLogout;
+
+  onAuthStateChanged(auth, function(user) {
+    if (!user) { window.location.href = '/login.html?next=/credits.html'; return; }
+    getDoc(doc(db, 'users', user.uid)).then(function(snap) {
+      if (!snap.exists()) { window.location.href = '/login.html?next=/credits.html'; return; }
+      var userData = snap.data();
+      var role = userData.role;
+      if (role === 'buyer') { window.location.href = '/buyer-dashboard.html'; return; }
+      if (role !== 'freelancer') { window.location.href = '/login.html?next=/credits.html'; return; }
+
+      window.CURRENT_UID = user.uid;
+      var name = user.displayName || userData.name || user.email || 'Freelancer';
+      var parts = name.trim().split(' ');
+      document.getElementById('user-avatar').textContent =
+        parts.length >= 2 ? parts[0][0]+parts[parts.length-1][0] : name.slice(0,2).toUpperCase();
+
+      buildNav(user.uid, userData.affiliateEnabled === true);
+      document.body.style.visibility = 'visible';
+
+      loadCreditsOverview();
+      loadPurchaseHistory(user.uid);
+      loadCreditPlatformConfig();
+    }).catch(function() { window.location.href = '/login.html?next=/credits.html'; });
+  });
+</script>
+</body>
+</html>

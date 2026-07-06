@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0d2145" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Kreddlo" />
+<link rel="apple-touch-icon" href="/assets/kreddlo-192.png" />
+  <title>Browse Briefs — Kreddlo</title>
+  <meta id="meta-description" name="description" content="Browse Briefs posted by buyers on Kreddlo. Find work that matches your skills and submit a Pitch to get hired." />
+  <meta property="og:title" content="Browse Briefs - Kreddlo" />
+  <meta property="og:description" content="Browse Briefs posted by buyers on Kreddlo. Find work that matches your skills and submit a Pitch to get hired." />
+  <meta property="og:url" content="https://kreddlo.space/briefs.html" />
+  <meta property="og:image" content="https://kreddlo.space/assets/kreddlo-og-banner.png" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://kreddlo.space/assets/kreddlo-og-banner.png" />
+  <link id="canonical" rel="canonical" href="https://kreddlo.space/briefs.html" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin/>
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy:          '#0d2145',
+            'navy-deep':   '#091830',
+            'navy-mid':    '#162f5e',
+            green:         '#2d8a5e',
+            'green-light': '#3dbd7a',
+            'green-pale':  '#e8f5ef',
+            cream:         '#f8f9fb',
+            border:        '#e2e8f0',
+          },
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          },
+          borderRadius: {
+            pill: '50px',
+            card: '20px',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #f8f9fb;
+      color: #0d2145;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ── Glass ── */
+    .glass {
+      background: rgba(255,255,255,0.60);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,0.30);
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(13,33,69,0.08);
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #0d2145; color: #fff; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #0d2145; cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(13,33,69,0.20);
+    }
+    .btn-primary:hover  { background: #162f5e; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(13,33,69,0.28); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; color: #0d2145; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #0d2145; cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+    }
+    .btn-secondary:hover  { background: #0d2145; color: #fff; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(13,33,69,0.20); }
+    .btn-secondary:active { transform: translateY(0); }
+
+    .btn-green {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #2d8a5e; color: #fff; border-radius: 50px;
+      padding: 12px 28px; font-weight: 600; font-size: 15px;
+      border: 2px solid #2d8a5e; cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      text-decoration: none; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(45,138,94,0.30);
+    }
+    .btn-green:hover  { background: #236b49; border-color: #236b49; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(45,138,94,0.38); }
+    .btn-green:active { transform: translateY(0); }
+
+    /* ── Blob decoration ── */
+    .blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(90px); pointer-events: none; z-index: 0;
+    }
+
+    /* ── Mobile menu overlay ── */
+    .menu-overlay {
+      position: fixed; inset: 0;
+      background: rgba(9,24,48,0.60);
+      z-index: 400;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .menu-overlay.open { opacity: 1; pointer-events: all; }
+
+    /* ── Mobile slide-in menu ── */
+    .mobile-menu-panel {
+      position: fixed; top: 0; right: 0;
+      width: 280px; height: 100%;
+      background: #091830;
+      z-index: 500;
+      padding: 32px 24px;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.30s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .mobile-menu-panel.open { transform: translateX(0); }
+
+    /* ── Search bar ── */
+    .search-wrapper { position: relative; width: 100%; }
+    .search-input {
+      width: 100%;
+      padding: 14px 20px 14px 46px;
+      border-radius: 50px;
+      border: 1.5px solid #e2e8f0;
+      background: #ffffff;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 14px; font-weight: 500;
+      color: #0d2145;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 4px 20px rgba(13,33,69,0.06);
+    }
+    .search-input::placeholder { color: rgba(13,33,69,0.38); }
+    .search-input:focus {
+      border-color: #2d8a5e;
+      box-shadow: 0 0 0 3px rgba(45,138,94,0.12), 0 4px 20px rgba(13,33,69,0.06);
+    }
+    .search-icon {
+      position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+      pointer-events: none;
+    }
+
+    /* ── Category filter pills ── */
+    .filter-scroll-wrap { position: relative; }
+    .filter-scroll-wrap::after {
+      content: ''; position: absolute; top: 0; right: 0; bottom: 4px; width: 36px;
+      background: linear-gradient(to right, rgba(248,249,251,0), #f8f9fb);
+      pointer-events: none; opacity: 1; transition: opacity 0.2s ease;
+    }
+    .filter-scroll-wrap.at-end::after { opacity: 0; }
+    .filter-scroll {
+      display: flex; gap: 8px; overflow-x: auto;
+      padding-bottom: 4px; -ms-overflow-style: none; scrollbar-width: none;
+    }
+    .filter-scroll::-webkit-scrollbar { display: none; }
+    .filter-pill {
+      flex-shrink: 0; padding: 8px 18px; border-radius: 50px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      border: 1.5px solid #e2e8f0; background: #ffffff;
+      color: rgba(13,33,69,0.65);
+      transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+      white-space: nowrap; user-select: none;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .filter-pill:hover  { border-color: #2d8a5e; color: #2d8a5e; background: rgba(45,138,94,0.04); }
+    .filter-pill:focus-visible { outline: 2px solid #2d8a5e; outline-offset: 2px; }
+    .filter-pill.active {
+      background: #0d2145; border-color: #0d2145; color: #ffffff;
+      box-shadow: 0 4px 12px rgba(13,33,69,0.20);
+    }
+
+    /* ── Input field (design system) ── */
+    .input-field{width:100%;padding:12px 16px;background:rgba(255,255,255,0.85);border:1.5px solid #e2e8f0;border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:500;color:#0d2145;outline:none;transition:border-color .2s,box-shadow .2s}
+    .input-field:focus{border-color:#2d8a5e;box-shadow:0 0 0 3px rgba(45,138,94,0.11)}
+    .input-field::placeholder{color:rgba(13,33,69,0.35)}
+
+    /* ── Badges (design system — copied from dashboard.html) ── */
+    .badge{display:inline-flex;align-items:center;padding:3px 11px;border-radius:50px;font-size:11px;font-weight:600;letter-spacing:.3px;white-space:nowrap}
+    .badge-green{background:#e8f5ef;color:#2d8a5e}
+    .badge-blue{background:#e8f0fe;color:#1a56db}
+    .badge-amber{background:#fff3cd;color:#856404}
+    .badge-red{background:#fde8e8;color:#c81e1e}
+    .badge-grey{background:rgba(13,33,69,0.07);color:rgba(13,33,69,0.55)}
+
+    /* ── Skeleton loader (design system — copied from dashboard.html) ── */
+    .sk{background:linear-gradient(90deg,#f0f2f6 25%,#e8eaf0 50%,#f0f2f6 75%);background-size:200% 100%;animation:sk 1.5s infinite linear;border-radius:8px}
+    @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+    /* ── Brief card ── */
+    .brief-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 2px 12px rgba(13,33,69,0.06);
+      cursor: pointer;
+      transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+      text-decoration: none;
+      display: flex; flex-direction: column;
+      color: #0d2145;
+    }
+    .brief-card:hover {
+      box-shadow: 0 6px 24px rgba(13,33,69,0.12);
+      transform: translateY(-2px);
+      border-color: rgba(45,138,94,0.28);
+    }
+    .brief-card:focus-visible { outline: 2px solid #2d8a5e; outline-offset: 2px; }
+    .brief-title {
+      font-size: 16px; font-weight: 700; color: #0d2145; margin-top: 10px;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      line-height: 1.35;
+    }
+    .brief-desc {
+      font-size: 13px; color: rgba(13,33,69,0.60); margin-top: 6px; line-height: 1.5;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .brief-skill-chip {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      background: rgba(13,33,69,0.06); color: #0d2145;
+      border-radius: 50px; padding: 3px 10px;
+    }
+    .brief-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg,#2d8a5e,#3dbd7a);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff;
+    }
+
+    /* ── Empty / error state ── */
+    .empty-state {
+      text-align: center; padding: 64px 24px;
+      grid-column: 1 / -1;
+    }
+
+    /* ── Fade-up ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.55s ease both; }
+
+    /* ── Pulse dot ── */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Focus-visible global ── */
+    :focus-visible { outline: 2px solid #2d8a5e; outline-offset: 2px; }
+
+    /* ── Toast ── */
+    #briefs-toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px);
+      background: #091830; color: #fff; border-radius: 50px;
+      padding: 11px 22px; font-size: 13px; font-weight: 600;
+      z-index: 3000; opacity: 0; pointer-events: none;
+      transition: transform .25s, opacity .25s; white-space: nowrap;
+      max-width: 90vw; text-align: center;
+    }
+    #briefs-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+
+  <!-- Firebase CDN -->
+  <script type="module">
+    import { initializeApp }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, doc, getDoc }
+                                from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyADHwnG1Im3IF5VetCilku1WeefjUR8Zkk",
+      authDomain:        "kreddlo.firebaseapp.com",
+      projectId:         "kreddlo",
+      storageBucket:     "kreddlo.firebasestorage.app",
+      messagingSenderId: "764500458567",
+      appId:             "1:764500458567:web:2389d5cf8c688caafd0562",
+    };
+
+    const app      = initializeApp(firebaseConfig);
+    window.db      = getFirestore(app);
+    window.auth    = getAuth(app);
+
+    window._firebaseReady = true;
+    window._onAuthStateChanged = (cb) => onAuthStateChanged(window.auth, cb);
+    window.dispatchEvent(new Event('kreddlo-firebase-ready'));
+
+    // Load social links from Firestore config
+    (async () => {
+      try {
+        const snap = await getDoc(doc(window.db, 'config', 'platform'));
+        const s = snap.exists() ? snap.data() : {};
+        ['twitter', 'linkedin', 'instagram'].forEach(name => {
+          const el = document.getElementById('social-' + name);
+          if (!el) return;
+          const url = s[name + 'Url'] || '';
+          if (url) { el.href = url; el.style.display = 'flex'; } else { el.style.display = 'none'; }
+        });
+      } catch (e) { /* silent fail */ }
+    })();
+
+    // Auth-aware nav
+    onAuthStateChanged(window.auth, async (user) => {
+      const navPublicDesktop = document.getElementById('nav-public-desktop');
+      const navAuthDesktop   = document.getElementById('nav-auth-desktop');
+      const navPublicMobile  = document.getElementById('nav-public-mobile');
+      const navAuthMobile    = document.getElementById('nav-auth-mobile');
+      const avatarEl         = document.getElementById('nav-briefs-avatar');
+      const dashLinkD        = document.getElementById('nav-briefs-dash-desktop');
+      const dashLinkM        = document.getElementById('nav-briefs-dash-mobile');
+
+      if (!user) { window._kreddloRole = null; return; } // keep public nav
+
+      let dashHref = '/dashboard.html';
+      try {
+        const snap = await getDoc(doc(window.db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          window._kreddloRole = data.role || null;
+          if (data.role === 'buyer') dashHref = '/buyer-dashboard.html';
+        }
+      } catch(e) {}
+
+      if (dashLinkD) dashLinkD.href = dashHref;
+      if (dashLinkM) dashLinkM.href = dashHref;
+
+      const initial = (user.displayName || user.email || '?')[0].toUpperCase();
+      if (avatarEl) avatarEl.textContent = initial;
+
+      if (navPublicDesktop) navPublicDesktop.style.display = 'none';
+      if (navAuthDesktop)   navAuthDesktop.style.display   = 'flex';
+      if (navPublicMobile) navPublicMobile.style.display = 'none';
+      if (navAuthMobile)   navAuthMobile.style.display   = 'flex';
+
+      // Buyer-conditional UI (e.g. empty-state "Post a Brief" button) may
+      // already have rendered before role was known — re-render if needed.
+      if (typeof window._reRenderBriefsForRole === 'function') {
+        window._reRenderBriefsForRole();
+      }
+    });
+  </script>
+  <script src="/assets/shared.js" defer></script>
+</head>
+
+<body class="overflow-x-hidden">
+<!-- ═══════════════════════════════════════════════════
+     SITE BANNER — reads config/banner from Firestore
+     Do not remove. Managed via admin > Site Banner.
+═══════════════════════════════════════════════════ -->
+<div id="site-banner" style="display:none;width:100%;box-sizing:border-box;"></div>
+<div id="site-banner-backdrop" style="display:none;position:fixed;inset:0;background:rgba(13,33,69,0.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:9998;" onclick="window._dismissSiteBanner&&window._dismissSiteBanner()"></div>
+<script>
+(function(){
+  var MAX_WAIT=8000,POLL_INT=80,elapsed=0;
+  function renderBanner(data){
+    var ms=data.publishedAt&&data.publishedAt.toMillis?data.publishedAt.toMillis():(data.publishedAt||0);
+    var dismissKey='dismissed_banner_'+ms;
+    if(data.dismissible&&localStorage.getItem(dismissKey)==='1')return;
+    var style=data.style||'info';
+    var mode=data.displayMode||'strip';
+    var themes={
+      info:   {bg:'#dbeafe',border:'rgba(59,130,246,0.35)',text:'#1e3a5f',btn:'#3b82f6',btnText:'#fff'},
+      warning:{bg:'#fef9c3',border:'rgba(202,138,4,0.35)', text:'#713f12',btn:'#ca8a04',btnText:'#fff'},
+      success:{bg:'#dcfce7',border:'rgba(22,163,74,0.35)', text:'#14532d',btn:'#16a34a',btnText:'#fff'}
+    };
+    var t=themes[style]||themes.info;
+    function dismiss(){
+      if(data.dismissible)localStorage.setItem(dismissKey,'1');
+      document.getElementById('site-banner').style.display='none';
+      document.getElementById('site-banner-backdrop').style.display='none';
+    }
+    window._dismissSiteBanner=dismiss;
+    var closeBtn=data.dismissible
+      ?'<button onclick="window._dismissSiteBanner()" aria-label="Dismiss" style="flex-shrink:0;min-width:44px;min-height:44px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px;color:'+t.text+';padding:0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'
+      :'';
+    var ctaBtn=(data.ctaLabel&&data.ctaUrl)
+      ?'<a href="'+data.ctaUrl+'" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;white-space:nowrap;padding:8px 18px;background:'+t.btn+';color:'+t.btnText+';border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;flex-shrink:0;">'+data.ctaLabel+'</a>'
+      :'';
+    var banner=document.getElementById('site-banner');
+    var backdrop=document.getElementById('site-banner-backdrop');
+    if(mode==='modal'){
+      banner.style.cssText=['display:none','position:fixed','top:50%','left:50%','transform:translate(-50%,-50%)','z-index:9999','width:calc(100% - 32px)','max-width:480px','box-sizing:border-box','flex-direction:column','gap:12px','background:'+t.bg,'border:1.5px solid '+t.border,'border-radius:20px','padding:24px 20px 20px','box-shadow:0 20px 60px rgba(13,33,69,0.22)'].join(';');
+      banner.innerHTML='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><span style="font-size:17px;font-weight:800;color:'+t.text+';line-height:1.3;flex:1;">'+(data.title||'')+'</span>'+closeBtn+'</div>'+(data.body?'<p style="font-size:14px;font-weight:500;color:'+t.text+';margin:0;line-height:1.6;opacity:0.85;">'+data.body+'</p>':'')+(ctaBtn?'<div>'+ctaBtn+'</div>':'');
+      banner.style.display='flex';
+      backdrop.style.display='block';
+    } else {
+      banner.style.cssText=['display:flex','width:100%','box-sizing:border-box','align-items:center','justify-content:space-between','gap:10px','background:'+t.bg,'border-bottom:1.5px solid '+t.border,'padding:10px 16px','flex-wrap:wrap'].join(';');
+      banner.innerHTML='<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;flex:1;min-width:0;"><span style="font-size:14px;font-weight:700;color:'+t.text+';white-space:nowrap;">'+(data.title||'')+'</span>'+(data.body?'<span style="font-size:13px;font-weight:500;color:'+t.text+';opacity:0.80;line-height:1.5;">'+data.body+'</span>':'')+ctaBtn+'</div>'+closeBtn;
+    }
+  }
+  function tryLoad(){
+    if(window.db){
+      var _imp=window.firestore||null;
+      if(_imp&&_imp.getDoc&&_imp.doc){
+        _imp.getDoc(_imp.doc(window.db,'config','banner')).then(function(snap){
+          if(snap.exists()){var d=snap.data();if(d.active===true)renderBanner(d);}
+        }).catch(function(){});
+      } else {
+        import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(function(m){
+          m.getDoc(m.doc(window.db,'config','banner')).then(function(snap){
+            if(snap.exists()){var d=snap.data();if(d.active===true)renderBanner(d);}
+          }).catch(function(){});
+        }).catch(function(){});
+      }
+      return;
+    }
+    elapsed+=POLL_INT;
+    if(elapsed<MAX_WAIT)setTimeout(tryLoad,POLL_INT);
+  }
+  setTimeout(tryLoad,120);
+})();
+</script>
+
+
+  <!-- ══════════════════════════════════
+       MOBILE MENU OVERLAY
+  ══════════════════════════════════ -->
+  <div class="menu-overlay" id="menu-overlay" onclick="closeMobileMenu()" aria-hidden="true"></div>
+
+  <!-- ══════════════════════════════════
+       MOBILE SLIDE-IN MENU
+  ══════════════════════════════════ -->
+  <div class="mobile-menu-panel" id="mobile-panel" role="dialog" aria-label="Navigation menu" aria-modal="true">
+    <div class="flex items-center justify-between mb-10">
+      <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+        Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span>
+      </span>
+      <button onclick="closeMobileMenu()" aria-label="Close menu"
+        style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.08);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+        <svg width="18" height="18" fill="none" stroke="#fff" stroke-width="2.2" viewBox="0 0 24 24">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav style="display:flex;flex-direction:column;gap:4px;flex:1;">
+      <a href="/" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Home
+      </a>
+      <a href="/browse.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Browse
+      </a>
+      <a href="/briefs.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white text-[15px] font-semibold no-underline"
+         style="background:rgba(45,138,94,0.18);border-left:3px solid #2d8a5e;">
+        Briefs
+      </a>
+      <a href="/how-it-works.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        How It Works
+      </a>
+      <a href="/pricing.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Pricing
+      </a>
+      <a href="/blog/index.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        Blog
+      </a>
+      <a href="/about.html" onclick="closeMobileMenu()"
+         class="block px-4 py-3 rounded-xl text-white/60 text-[15px] font-medium no-underline transition-colors hover:bg-white/[0.06] hover:text-white">
+        About
+      </a>
+    </nav>
+
+    <div id="nav-public-mobile" style="display:flex;flex-direction:column;gap:10px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">
+      <a href="/login.html" onclick="closeMobileMenu()"
+         style="display:block;text-align:center;padding:12px 20px;border-radius:50px;border:1.5px solid rgba(255,255,255,0.20);color:rgba(255,255,255,0.80);font-size:14px;font-weight:600;text-decoration:none;transition:background 0.18s,border-color 0.18s;"
+         onmouseover="this.style.background='rgba(255,255,255,0.06)';"
+         onmouseout="this.style.background='';">
+        Log In
+      </a>
+      <a href="/signup.html" onclick="closeMobileMenu()" class="btn-green" style="text-align:center;font-size:14px;padding:12px 20px;">
+        Get Started
+      </a>
+    </div>
+    <div id="nav-auth-mobile" style="display:none;flex-direction:column;gap:10px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">
+      <a id="nav-briefs-dash-mobile" href="/dashboard.html" onclick="closeMobileMenu()" class="btn-green" style="text-align:center;font-size:14px;padding:12px 20px;">
+        Dashboard
+      </a>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       STICKY NAVBAR
+  ══════════════════════════════════ -->
+  <nav style="position:sticky;top:0;z-index:200;padding:12px 16px;">
+    <div class="glass" style="max-width:1200px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+
+      <a href="/" style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;text-decoration:none;flex-shrink:0;display:inline-block;">Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span></a>
+
+      <div style="display:none;align-items:center;gap:32px;" class="md-flex-row">
+        <a href="/#features"        class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Features</a>
+        <a href="/how-it-works.html" class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">How It Works</a>
+        <a href="/browse.html"       class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Browse</a>
+        <a href="/briefs.html"       class="text-navy font-bold text-sm">Briefs</a>
+        <a href="/pricing.html"      class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Pricing</a>
+        <a href="/blog/index.html"   class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">Blog</a>
+        <a href="/about.html"        class="text-navy/70 hover:text-navy font-medium text-sm transition-colors">About</a>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="nav-public-desktop" class="desktop-auth" style="display:none;gap:8px;align-items:center;">
+          <a href="/login.html"  class="btn-secondary" style="padding:9px 20px;font-size:14px;">Log In</a>
+          <a href="/signup.html" class="btn-green"      style="padding:9px 20px;font-size:14px;">Get Started</a>
+        </div>
+        <div id="nav-auth-desktop" style="display:none;align-items:center;gap:10px;">
+          <a id="nav-briefs-dash-desktop" href="/dashboard.html" class="btn-secondary" style="padding:9px 20px;font-size:14px;font-weight:600;">Dashboard</a>
+          <div id="nav-briefs-avatar" style="width:34px;height:34px;border-radius:50%;background:#2d8a5e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;"></div>
+        </div>
+        <button id="hamburger" onclick="openMobileMenu()" aria-label="Open menu" aria-expanded="false"
+          style="width:40px;height:40px;border-radius:10px;background:rgba(13,33,69,0.06);border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transition:background 0.18s;"
+          onmouseover="this.style.background='rgba(13,33,69,0.10)';"
+          onmouseout="this.style.background='rgba(13,33,69,0.06)';">
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+          <span style="display:block;width:18px;height:2px;background:#0d2145;border-radius:2px;"></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════════════════════════════
+       SECTION 1 — HERO STRIP
+  ══════════════════════════════════ -->
+  <section style="background:#ffffff;border-bottom:1px solid #e2e8f0;">
+    <div id="briefs-hero-inner" style="max-width:1100px;margin:0 auto;padding:24px 20px;">
+      <div id="briefs-hero-flex">
+        <div>
+          <h1 class="fade-up" id="briefs-hero-title" style="font-weight:800;color:#0d2145;letter-spacing:-0.5px;margin:0 0 6px;">
+            Browse Briefs
+          </h1>
+          <p class="fade-up" style="font-size:14px;font-weight:500;color:rgba(13,33,69,0.55);margin:0;line-height:1.6;">
+            Find work that matches your skills. Submit a Pitch to get hired.
+          </p>
+        </div>
+        <a href="/post-brief.html" class="btn-green fade-up" id="briefs-post-btn" style="white-space:nowrap;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:6px;">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Post a Brief
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       SECTION 2 — FILTER BAR
+  ══════════════════════════════════ -->
+  <section id="briefs-filter-section" style="background:#f8f9fb;border-bottom:1px solid #e2e8f0;position:sticky;top:64px;z-index:150;">
+    <div style="max-width:1100px;margin:0 auto;padding:14px 20px;">
+      <div id="briefs-filter-row">
+        <div class="filter-scroll-wrap" id="filter-bar-wrap" style="flex:1;min-width:0;">
+          <div class="filter-scroll" id="briefs-category-bar" role="group" aria-label="Filter by category">
+            <button class="filter-pill active" data-category="">All</button>
+            <button class="filter-pill" data-category="Design">Design</button>
+            <button class="filter-pill" data-category="Development">Development</button>
+            <button class="filter-pill" data-category="Writing">Writing</button>
+            <button class="filter-pill" data-category="Marketing">Marketing</button>
+            <button class="filter-pill" data-category="Video">Video</button>
+            <button class="filter-pill" data-category="Audio">Audio</button>
+            <button class="filter-pill" data-category="Business">Business</button>
+            <button class="filter-pill" data-category="Other">Other</button>
+          </div>
+        </div>
+
+        <div id="briefs-budget-row" style="display:flex;gap:8px;">
+          <input type="number" id="budget-min-input" class="input-field" placeholder="Min $" min="0" style="width:100%;" />
+          <input type="number" id="budget-max-input" class="input-field" placeholder="Max $" min="0" style="width:100%;" />
+          <button class="btn-secondary" id="budget-filter-btn" style="padding:10px 18px;font-size:13px;white-space:nowrap;">Filter</button>
+        </div>
+
+        <div class="search-wrapper" id="briefs-search-wrap">
+          <svg class="search-icon" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="rgba(13,33,69,0.38)" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input id="briefs-search-input" type="text" class="search-input" placeholder="Search Briefs by keyword" autocomplete="off" aria-label="Search Briefs" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       SECTION 3 — BRIEF CARDS GRID
+  ══════════════════════════════════ -->
+  <section style="padding:24px 20px 60px;">
+    <div style="max-width:1100px;margin:0 auto;">
+      <p id="briefs-results-count" style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.50);margin:0 0 16px;">Loading Briefs...</p>
+
+      <div id="briefs-grid">
+        <!-- Skeleton cards (6 shown while loading) -->
+        <div class="brief-card" data-skel="1" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:80px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:50px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:85%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:60%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:95%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:70%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:50%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:60px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:76px;border-radius:50px;"></div>
+          </div>
+        </div>
+        <div class="brief-card" data-skel="2" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:90px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:44px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:70%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:50%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:88%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:62%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:44%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:64px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:70px;border-radius:50px;"></div>
+          </div>
+        </div>
+        <div class="brief-card" data-skel="3" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:76px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:56px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:92%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:65%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:80%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:55%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:48%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:68px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:64px;border-radius:50px;"></div>
+          </div>
+        </div>
+        <div class="brief-card" data-skel="4" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:84px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:48px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:78%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:55%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:90%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:68%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:52%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:72px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:60px;border-radius:50px;"></div>
+          </div>
+        </div>
+        <div class="brief-card" data-skel="5" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:70px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:52px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:88%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:60%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:75%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:58%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:46%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:64px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:78px;border-radius:50px;"></div>
+          </div>
+        </div>
+        <div class="brief-card" data-skel="6" aria-hidden="true">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="sk" style="height:20px;width:82px;border-radius:50px;"></div>
+            <div class="sk" style="height:12px;width:46px;"></div>
+          </div>
+          <div class="sk" style="height:16px;width:82%;margin-top:14px;"></div>
+          <div class="sk" style="height:16px;width:58%;margin-top:6px;"></div>
+          <div class="sk" style="height:12px;width:85%;margin-top:14px;"></div>
+          <div class="sk" style="height:12px;width:64%;margin-top:6px;"></div>
+          <div class="sk" style="height:14px;width:50%;margin-top:14px;"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <div class="sk" style="height:22px;width:66px;border-radius:50px;"></div>
+            <div class="sk" style="height:22px;width:72px;border-radius:50px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:center;margin-top:32px;">
+        <button class="btn-secondary" id="briefs-load-more-btn" style="display:none;padding:10px 28px;font-size:14px;">Load more</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       FOOTER
+  ══════════════════════════════════ -->
+  <footer style="border-top:1px solid #e2e8f0;padding:56px 20px 40px;">
+    <div style="max-width:1100px;margin:0 auto;">
+      <div style="display:grid;grid-template-columns:1fr;gap:36px;margin-bottom:40px;">
+
+        <div>
+          <a href="/" style="text-decoration:none;display:inline-block;margin-bottom:14px;">
+            <span style="font-size:22px;font-weight:800;color:#0d2145;letter-spacing:-0.5px;">
+              Kreddl<span style="color:#3dbd7a;letter-spacing:0;">o</span>
+            </span>
+          </a>
+          <p style="font-size:14px;font-weight:400;color:rgba(13,33,69,0.50);line-height:1.6;max-width:280px;">
+            The complete freelance operating system for verified professionals in countries locked out of traditional payment networks.
+          </p>
+        </div>
+
+        <div>
+          <p style="font-size:11px;font-weight:700;color:#0d2145;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Platform</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;">
+            <a href="/#features"         class="text-navy/55 text-[14px] hover:text-navy transition-colors">Features</a>
+            <a href="/how-it-works.html" class="text-navy/55 text-[14px] hover:text-navy transition-colors">How It Works</a>
+            <a href="/browse.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Browse</a>
+            <a href="/briefs.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Briefs</a>
+            <a href="/pricing.html"      class="text-navy/55 text-[14px] hover:text-navy transition-colors">Pricing</a>
+            <a href="/signup.html"       class="text-navy/55 text-[14px] hover:text-navy transition-colors">Sign Up</a>
+            <a href="/login.html"        class="text-navy/55 text-[14px] hover:text-navy transition-colors">Log In</a>
+            <a href="/blog/index.html"   class="text-navy/55 text-[14px] hover:text-navy transition-colors">Blog</a>
+            <a href="/about.html"        class="text-navy/55 text-[14px] hover:text-navy transition-colors">About</a>
+          </div>
+        </div>
+
+        <div>
+          <p style="font-size:11px;font-weight:700;color:#0d2145;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Connect</p>
+          <div style="display:flex;gap:10px;">
+            <a id="social-twitter" href="#" target="_blank" rel="noopener" aria-label="Twitter/X" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);display:none;align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="#0d2145" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            </a>
+            <a id="social-linkedin" href="#" target="_blank" rel="noopener" aria-label="LinkedIn" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="#0d2145" viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>
+            </a>
+            <a id="social-instagram" href="#" target="_blank" rel="noopener" aria-label="Instagram" style="display:none;width:36px;height:36px;border-radius:10px;background:rgba(13,33,69,0.06);align-items:center;justify-content:center;transition:background 0.18s;" onmouseover="this.style.background='rgba(13,33,69,0.12)'" onmouseout="this.style.background='rgba(13,33,69,0.06)'">
+              <svg width="15" height="15" fill="none" stroke="#0d2145" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="#0d2145"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid #e2e8f0;padding-top:24px;display:flex;flex-direction:column;gap:12px;align-items:flex-start;">
+        <p style="font-size:13px;font-weight:400;color:rgba(13,33,69,0.40);">
+          &copy; <span id="yr"></span> Kreddlo. All rights reserved.
+        </p>
+        <div style="display:flex;gap:20px;">
+          <a href="/privacy.html" class="text-navy/40 text-[13px] hover:text-navy transition-colors">Privacy Policy</a>
+          <a href="/terms.html"   class="text-navy/40 text-[13px] hover:text-navy transition-colors">Terms of Service</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast -->
+  <div id="briefs-toast"></div>
+
+  <!-- ══════════════════════════════════
+       RESPONSIVE STYLE INJECTION
+       (Mobile-first base here in the stylesheet, not inline — inline
+       styles have higher specificity than min-width media queries and
+       would silently defeat them at every breakpoint, as previously
+       fixed on browse.html. Same pattern followed here.)
+  ══════════════════════════════════ -->
+  <style>
+    /* Hero */
+    #briefs-hero-title { font-size: 24px; }
+    #briefs-hero-flex { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+    #briefs-post-btn { display: inline-flex; }
+
+    /* Filter row */
+    #briefs-filter-row { display: flex; flex-direction: column; gap: 10px; }
+    #briefs-budget-row { flex-direction: row; }
+    #briefs-search-wrap { width: 100%; }
+
+    /* Grid */
+    #briefs-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+    @media (min-width: 640px) {
+      #briefs-grid { grid-template-columns: 1fr 1fr; gap: 18px; }
+    }
+
+    @media (min-width: 768px) {
+      #briefs-hero-title { font-size: 32px; }
+      #briefs-hero-flex { flex-direction: row; align-items: center; justify-content: space-between; }
+      footer > div > div:first-child { grid-template-columns: 1.8fr 1fr 1fr !important; }
+    }
+
+    @media (min-width: 900px) {
+      #briefs-filter-row { flex-direction: row; align-items: center; }
+      #briefs-budget-row { flex-shrink: 0; width: auto; }
+      #budget-min-input, #budget-max-input { width: 100px; }
+      #briefs-search-wrap { width: 280px; flex-shrink: 0; }
+    }
+
+    @media (min-width: 1024px) {
+      #briefs-grid { grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+      .md-flex-row { display: flex !important; }
+      #nav-public-desktop { display: flex; }
+      #hamburger { display: none !important; }
+    }
+    @media (max-width: 1023px) {
+      #nav-auth-desktop { display: none !important; }
+    }
+  </style>
+
+  <!-- ══════════════════════════════════
+       SCRIPTS
+  ══════════════════════════════════ -->
+  <script>
+    /* ────────────────────────────────────
+       MOBILE MENU
+    ──────────────────────────────────── */
+    function openMobileMenu() {
+      document.getElementById('mobile-panel').classList.add('open');
+      document.getElementById('menu-overlay').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      document.getElementById('hamburger').setAttribute('aria-expanded', 'true');
+    }
+    function closeMobileMenu() {
+      document.getElementById('mobile-panel').classList.remove('open');
+      document.getElementById('menu-overlay').classList.remove('open');
+      document.body.style.overflow = '';
+      document.getElementById('hamburger').setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeMobileMenu();
+    });
+
+    document.getElementById('yr').textContent = new Date().getFullYear();
+
+    /* ────────────────────────────────────
+       TOAST
+    ──────────────────────────────────── */
+    var toastTimer = null;
+    function showToast(msg) {
+      var el = document.getElementById('briefs-toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2600);
+    }
+
+    /* ────────────────────────────────────
+       HELPERS
+    ──────────────────────────────────── */
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function initialsFor(name) {
+      if (!name) return '?';
+      var parts = String(name).trim().split(/\s+/);
+      if (!parts.length || !parts[0]) return '?';
+      if (parts.length === 1) return parts[0][0].toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function formatDeadline(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function categoryBadgeClass(cat) {
+      if (cat === 'Design') return 'badge-green';
+      if (cat === 'Development') return 'badge-blue';
+      if (cat === 'Marketing') return 'badge-amber';
+      return 'badge-grey';
+    }
+
+    function formatBudget(min, max) {
+      var fmt = function(n){ return '$' + Number(n || 0).toLocaleString('en-US'); };
+      return fmt(min) + '\u2013' + fmt(max);
+    }
+
+    /* ────────────────────────────────────
+       STATE
+    ──────────────────────────────────── */
+    var allBriefs = [];
+    var currentPage = 1;
+    var isLoading = false;
+    var selectedCategory = '';
+    var searchTerm = '';
+    var budgetMinFilter = null;
+    var budgetMaxFilter = null;
+    var lastPageBriefCount = 0;
+
+    /* ────────────────────────────────────
+       LOAD BRIEFS
+    ──────────────────────────────────── */
+    function loadBriefs(page) {
+      if (isLoading) return;
+      isLoading = true;
+      var loadMoreBtn = document.getElementById('briefs-load-more-btn');
+      if (loadMoreBtn) { loadMoreBtn.disabled = true; loadMoreBtn.textContent = 'Loading...'; }
+
+      fetch('/.netlify/functions/get-briefs?page=' + page)
+        .then(function(res){ return res.json(); })
+        .then(function(data){
+          var briefs = (data && data.briefs) || [];
+          lastPageBriefCount = briefs.length;
+          if (page === 1) {
+            allBriefs = briefs;
+          } else {
+            allBriefs = allBriefs.concat(briefs);
+          }
+          currentPage = page;
+          renderBriefs();
+          if (loadMoreBtn) {
+            loadMoreBtn.disabled = false;
+            loadMoreBtn.textContent = 'Load more';
+            loadMoreBtn.style.display = (lastPageBriefCount >= 20) ? 'inline-flex' : 'none';
+          }
+        })
+        .catch(function(){
+          if (page === 1) {
+            document.getElementById('briefs-grid').innerHTML =
+              '<div class="empty-state" style="grid-column:1/-1;">' +
+              '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 6px;">Could not load Briefs</p>' +
+              '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0;">Please refresh the page to try again.</p>' +
+              '</div>';
+            document.getElementById('briefs-results-count').textContent = '';
+          }
+          if (loadMoreBtn) { loadMoreBtn.disabled = false; loadMoreBtn.textContent = 'Load more'; }
+        })
+        .finally(function(){ isLoading = false; });
+    }
+
+    /* ────────────────────────────────────
+       FILTERING (client-side, over loaded pages)
+    ──────────────────────────────────── */
+    function applyFilters() {
+      var filtered = allBriefs.slice();
+
+      if (selectedCategory) {
+        filtered = filtered.filter(function(b){ return b.category === selectedCategory; });
+      }
+      if (budgetMinFilter !== null && !isNaN(budgetMinFilter)) {
+        filtered = filtered.filter(function(b){ return (b.budgetMax || 0) >= budgetMinFilter; });
+      }
+      if (budgetMaxFilter !== null && !isNaN(budgetMaxFilter)) {
+        filtered = filtered.filter(function(b){ return (b.budgetMin || 0) <= budgetMaxFilter; });
+      }
+      if (searchTerm) {
+        var term = searchTerm.toLowerCase();
+        filtered = filtered.filter(function(b){
+          return ((b.title || '') + ' ' + (b.description || '')).toLowerCase().indexOf(term) !== -1;
+        });
+      }
+      return filtered;
+    }
+
+    /* ────────────────────────────────────
+       RENDER
+    ──────────────────────────────────── */
+    function briefCardHtml(b) {
+      var skills = b.skills || [];
+      var shownSkills = skills.slice(0, 3);
+      var extraCount = skills.length - shownSkills.length;
+      var skillsHtml = shownSkills.map(function(s){
+        return '<span class="brief-skill-chip">' + escapeHtml(s) + '</span>';
+      }).join('');
+      if (extraCount > 0) {
+        skillsHtml += '<span class="brief-skill-chip">+' + extraCount + ' more</span>';
+      }
+
+      return (
+        '<a class="brief-card fade-up" href="/brief.html?id=' + encodeURIComponent(b.id) + '">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+            '<span class="badge ' + categoryBadgeClass(b.category) + '">' + escapeHtml(b.category || 'Other') + '</span>' +
+            '<span style="font-size:12px;color:rgba(13,33,69,0.45);white-space:nowrap;">' + (b.pitchCount || 0) + ' Pitches</span>' +
+          '</div>' +
+          '<div class="brief-title">' + escapeHtml(b.title) + '</div>' +
+          '<div class="brief-desc">' + escapeHtml((b.description || '').slice(0, 120)) + '</div>' +
+          '<div style="font-size:13px;font-weight:600;color:#2d8a5e;margin-top:12px;">Budget: ' + formatBudget(b.budgetMin, b.budgetMax) + '</div>' +
+          '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:4px;">Due by ' + escapeHtml(formatDeadline(b.deadline)) + '</div>' +
+          (skillsHtml ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">' + skillsHtml + '</div>' : '') +
+          '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0;">' +
+            '<div class="brief-avatar">' + escapeHtml(initialsFor(b.buyerName)) + '</div>' +
+            '<span style="font-size:12px;font-weight:600;color:#0d2145;">' + escapeHtml(b.buyerName || 'Buyer') + '</span>' +
+          '</div>' +
+        '</a>'
+      );
+    }
+
+    function renderBriefs() {
+      var grid = document.getElementById('briefs-grid');
+      var countEl = document.getElementById('briefs-results-count');
+      var filtered = applyFilters();
+
+      if (!filtered.length) {
+        var canPostBrief = window._kreddloRole === 'buyer';
+        grid.innerHTML =
+          '<div class="empty-state">' +
+            '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 6px;">No Briefs found</p>' +
+            '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0 0 18px;">Try a different category or check back later.</p>' +
+            (canPostBrief ? '<a href="/post-brief.html" class="btn-green" style="display:inline-flex;">Post a Brief</a>' : '') +
+          '</div>';
+        countEl.textContent = 'No Briefs found';
+        return;
+      }
+
+      grid.innerHTML = filtered.map(briefCardHtml).join('');
+      countEl.textContent = filtered.length + (filtered.length === 1 ? ' Brief' : ' Briefs') + ' found';
+    }
+
+    // Exposed so the auth callback can re-render the empty-state CTA once
+    // the user's role is known (role often resolves after the first render).
+    window._reRenderBriefsForRole = function() {
+      if (!applyFilters().length) renderBriefs();
+    };
+
+    /* ────────────────────────────────────
+       FILTER BAR WIRING
+    ──────────────────────────────────── */
+    document.getElementById('briefs-category-bar').addEventListener('click', function(e){
+      var btn = e.target.closest('.filter-pill');
+      if (!btn) return;
+      document.querySelectorAll('#briefs-category-bar .filter-pill').forEach(function(p){ p.classList.remove('active'); });
+      btn.classList.add('active');
+      selectedCategory = btn.getAttribute('data-category') || '';
+      renderBriefs();
+    });
+
+    document.getElementById('budget-filter-btn').addEventListener('click', function(){
+      var minVal = document.getElementById('budget-min-input').value;
+      var maxVal = document.getElementById('budget-max-input').value;
+      budgetMinFilter = minVal !== '' ? Number(minVal) : null;
+      budgetMaxFilter = maxVal !== '' ? Number(maxVal) : null;
+      renderBriefs();
+    });
+
+    var searchDebounce = null;
+    document.getElementById('briefs-search-input').addEventListener('input', function(e){
+      clearTimeout(searchDebounce);
+      var val = e.target.value;
+      searchDebounce = setTimeout(function(){
+        searchTerm = val.trim();
+        renderBriefs();
+      }, 250);
+    });
+
+    document.getElementById('briefs-load-more-btn').addEventListener('click', function(){
+      loadBriefs(currentPage + 1);
+    });
+
+    /* ────────────────────────────────────
+       INIT
+    ──────────────────────────────────── */
+    loadBriefs(1);
+  </script>
+</body>
+</html>
