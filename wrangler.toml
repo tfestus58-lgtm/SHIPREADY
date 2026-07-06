@@ -5,11 +5,3 @@ pages_build_output_dir = "."
 
 [vars]
 NODE_VERSION = "20"
-
-[triggers]
-crons = [
-  "0 */6 * * *",
-  "0 * * * *",
-  "*/5 * * * *",
-  "*/20 * * * *"
-]
