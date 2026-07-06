@@ -1,7 +1,20 @@
 name = "kreddlo"
+main = "worker/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "."
 
 [vars]
 NODE_VERSION = "20"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+not_found_handling = "404-page"
+
+[triggers]
+crons = [
+  "0 */6 * * *",
+  "0 * * * *",
+  "*/5 * * * *",
+  "*/20 * * * *"
+]
