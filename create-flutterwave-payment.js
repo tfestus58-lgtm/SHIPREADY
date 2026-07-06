@@ -43,9 +43,9 @@
  *   502 — Flutterwave API error
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { getSettings }                  = require('./get-settings');
 
 /* ── Flutterwave Standard Payment endpoint ── */
 const FLW_PAYMENT_URL = 'https://api.flutterwave.com/v3/payments';
@@ -53,12 +53,12 @@ const FLW_PAYMENT_URL = 'https://api.flutterwave.com/v3/payments';
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -74,32 +74,30 @@ function getDb(env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
   /* ── CORS preflight ── */
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+      body: '',
+    };
   }
 
-  const rawText = await request.text();
-
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Parse and validate request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -129,7 +127,7 @@ export async function onRequest(context) {
   }
 
   /* ── 3. Pull environment variables ── */
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.error('PLATFORM_URL environment variable is not set.');
     return respond(500, { error: 'Platform URL is not configured. Please contact support.' });
@@ -138,7 +136,7 @@ export async function onRequest(context) {
   try {
 
     /* ── 4. Init Firebase and load platform settings ── */
-    const db       = getDb(env);
+    const db       = getDb();
     const settings = await getSettings(db);
 
     /* ── 5. Guard: Flutterwave must be enabled in admin settings ── */
@@ -147,7 +145,7 @@ export async function onRequest(context) {
     }
 
     /* ── 6. Guard: FLW_SECRET_KEY must be present ── */
-    const flwKey = env.FLW_SECRET_KEY;
+    const flwKey = process.env.FLW_SECRET_KEY;
     if (!flwKey) {
       console.error('FLW_SECRET_KEY environment variable is not set.');
       return respond(500, { error: 'Flutterwave is not configured. Please contact support.' });
@@ -393,15 +391,16 @@ export async function onRequest(context) {
     console.error('[create-flutterwave-payment] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};
 
-/* ── Utility: build a Workers function response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

@@ -27,17 +27,17 @@
  *   CLOUDINARY_API_SECRET
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const crypto = require('crypto');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -48,25 +48,23 @@ function getDb(env) {
   return _db;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+exports.handler = async function (event) {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+    };
   }
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed' });
   }
 
-  const rawText = await request.text();
   let payload;
-  try { payload = JSON.parse(rawText || '{}'); }
+  try { payload = JSON.parse(event.body || '{}'); }
   catch { return respond(400, { error: 'Invalid JSON' }); }
 
   const { uid, resourceType, existingPublicId } = payload;
@@ -80,7 +78,7 @@ export async function onRequest(context) {
      entirely by simply supplying a known Pro user's uid, then using the
      resulting signature for their OWN upload, namespaced under the
      victim's identity. */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
@@ -100,9 +98,9 @@ export async function onRequest(context) {
     }
   }
 
-  const cloudName = env.CLOUDINARY_CLOUD_NAME;
-  const apiKey    = env.CLOUDINARY_API_KEY;
-  const apiSecret = env.CLOUDINARY_API_SECRET;
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey    = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
   if (!cloudName || !apiKey || !apiSecret) {
     return respond(500, { error: 'Cloudinary env vars not configured.' });
@@ -110,7 +108,7 @@ export async function onRequest(context) {
 
   try {
     // ── Pro-plan gate ──
-    const db = getDb(env);
+    const db = getDb();
     const userSnap = await db.collection('users').doc(uid).get();
     const plan = userSnap.exists ? (userSnap.data().plan || 'free') : 'free';
 
@@ -130,8 +128,7 @@ export async function onRequest(context) {
 
     // Params must be sorted alphabetically for the signature string
     const sigStr   = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-    const sigHashBuffer = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(sigStr));
-    const signature = Array.from(new Uint8Array(sigHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
 
     return respond(200, {
       cloudName,
@@ -147,11 +144,12 @@ export async function onRequest(context) {
     console.error('sign-delivery-upload error:', err.message);
     return respond(500, { error: err.message });
   }
-}
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

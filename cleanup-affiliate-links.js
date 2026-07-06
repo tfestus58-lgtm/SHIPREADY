@@ -46,19 +46,19 @@
  *   FIREBASE_SERVICE_ACCOUNT — full service account JSON
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -71,16 +71,14 @@ function getDb(env) {
   return _db;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') {
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -96,7 +94,7 @@ export async function onRequest(context) {
 
   /* ── Auth: ID token required for both caller types (Issue 1 fix) ── */
   let callerUid;
-  try { callerUid = await verifyCaller(request, env); }
+  try { callerUid = await verifyCaller(event, process.env); }
   catch { callerUid = null; }
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
@@ -104,7 +102,7 @@ export async function onRequest(context) {
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
@@ -168,15 +166,16 @@ export async function onRequest(context) {
 
   console.log(`cleanup-affiliate-links: deactivated ${linksSnap.size} link(s) for product ${productId}.`);
   return respond(200, { success: true, deactivated: linksSnap.size });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

@@ -25,19 +25,19 @@
  *   FIREBASE_SERVICE_ACCOUNT  — full service account JSON as one-line string
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -52,40 +52,40 @@ function getDb(env) {
 
 /* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
   /* ── Accept GET only ── */
-  if (request.method !== 'GET') {
+  if (event.httpMethod !== 'GET') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 1. Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
 
-  const url     = new URL(request.url);
-  const briefId = (url.searchParams.get('briefId') || '').trim();
+  const params  = event.queryStringParameters || {};
+  const briefId = (params.briefId || '').trim();
   if (!briefId) {
     return respond(400, { error: 'briefId is required.' });
   }
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── 2. Fetch the brief and verify ownership ── */
     const briefRef  = db.collection('briefs').doc(briefId);
@@ -128,4 +128,4 @@ export async function onRequest(context) {
     console.error('[get-pitches] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};

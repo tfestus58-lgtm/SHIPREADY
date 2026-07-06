@@ -20,17 +20,18 @@
  * We act on "confirmed" and "finished" only — both mean the funds are secured.
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const crypto  = require('crypto');
+const https   = require('https');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { getSettings } = require('./get-settings');
 
 /* ── Initialise Firebase Admin SDK once (survives warm Lambda invocations) ── */
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
     let serviceAccount;
     try {
-      serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
     } catch {
       throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not valid JSON.');
     }
@@ -49,35 +50,39 @@ const PENDING_STATUSES = new Set(['waiting', 'confirming', 'partially_paid']);
 const FAILED_STATUSES = new Set(['failed', 'refunded', 'expired']);
 
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
-  /* ── Raw body ──────────────────────────────────────────────────────────────
-     Cloudflare Workers' request.text() always returns the raw body as a
-     UTF-8 string directly — no base64 decoding guard needed here, unlike
-     the old Netlify event.body/isBase64Encoded handling.
+  /* ── Issue 7 fix: base64 decode guard ──────────────────────────────────────
+     Netlify can deliver the request body base64-encoded (event.isBase64Encoded
+     === true) for certain content types. stripe-webhook.js and
+     flutterwave-webhook.js already handle this; nowpayments-webhook.js
+     previously did not. Without the guard, the HMAC is computed over the
+     base64 string rather than the original UTF-8 payload, causing all
+     NOWPayments webhooks to fail signature verification.
   ─────────────────────────────────────────────────────────────────────────── */
-  const rawBody = await request.text();
+  const rawBody = event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf8')
+    : (event.body || '');
 
   /* ── 2. Verify IPN signature ── */
-  const ipnSecret = env.NOWPAYMENTS_IPN_SECRET;
+  const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
   if (!ipnSecret) {
     console.error('NOWPAYMENTS_IPN_SECRET environment variable is not set.');
     return respond(500, { error: 'Webhook not configured.' });
   }
 
-  const receivedSig = (request.headers.get('x-nowpayments-sig') || '').toLowerCase();
+  const receivedSig = (event.headers['x-nowpayments-sig'] || '').toLowerCase();
   if (!receivedSig) {
     console.warn('Webhook received with no x-nowpayments-sig header — rejected.');
     return respond(401, { error: 'Missing signature.' });
   }
 
-  const isValid = await verifySignature(rawBody, ipnSecret, receivedSig);
+  const isValid = verifySignature(rawBody, ipnSecret, receivedSig);
   if (!isValid) {
     console.warn('Webhook signature mismatch — possible spoofed request. Rejected.');
     return respond(401, { error: 'Invalid signature.' });
@@ -116,12 +121,12 @@ export async function onRequest(context) {
 
   if (FAILED_STATUSES.has(payment_status)) {
     // Optionally mark the project payment as failed so the buyer can retry
-    await handleFailedPayment(env, { order_id, payment_id, payment_status });
+    await handleFailedPayment({ order_id, payment_id, payment_status });
     return respond(200, { received: true });
   }
 
   if (FUNDED_STATUSES.has(payment_status)) {
-    await handleFundedPayment(env, {
+    await handleFundedPayment({
       order_id,
       payment_id,
       payment_status,
@@ -139,7 +144,7 @@ export async function onRequest(context) {
   // Unknown status — acknowledge so NOWPayments stops retrying, log for review
   console.warn(`Unhandled payment status "${payment_status}" for order ${order_id}.`);
   return respond(200, { received: true });
-}
+};
 
 
 /* ══════════════════════════════════════════════════════════════
@@ -148,7 +153,7 @@ export async function onRequest(context) {
    after sorting the body's top-level keys alphabetically.
    Docs: https://documenter.getpostman.com/view/7907941/2s93JusNJt#callbacks
 ══════════════════════════════════════════════════════════════ */
-async function verifySignature(rawBody, secret, receivedSig) {
+function verifySignature(rawBody, secret, receivedSig) {
   let parsed;
   try {
     parsed = JSON.parse(rawBody);
@@ -160,32 +165,22 @@ async function verifySignature(rawBody, secret, receivedSig) {
   const sorted = sortObjectKeys(parsed);
   const sortedJson = JSON.stringify(sorted);
 
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', keyMaterial, new TextEncoder().encode(sortedJson));
-  const expectedSig = Array.from(new Uint8Array(sigBuffer)).map(b => b.toString(16).padStart(2, '0')).join('').toLowerCase();
+  const expectedSig = crypto
+    .createHmac('sha512', secret)
+    .update(sortedJson)
+    .digest('hex')
+    .toLowerCase();
 
   // Timing-safe comparison prevents timing attacks
   try {
-    return (
-      typeof receivedSig === 'string' &&
-      expectedSig.length === receivedSig.length &&
-      timingSafeEqualStr(expectedSig, receivedSig)
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSig, 'utf8'),
+      Buffer.from(receivedSig, 'utf8'),
     );
   } catch {
-    // Different length — definitely not equal
+    // Buffers of different length — definitely not equal
     return false;
   }
-}
-
-// Web Crypto has no direct Node crypto.timingSafeEqual equivalent, so we use a
-// constant-time XOR comparison over character codes instead of Buffer.
-function timingSafeEqualStr(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 /**
@@ -211,7 +206,7 @@ function sortObjectKeys(obj) {
    - Updates the project document in Firestore
    - Emails the freelancer
 ══════════════════════════════════════════════════════════════ */
-async function handleFundedPayment(env, data) {
+async function handleFundedPayment(data) {
   const {
     order_id, payment_id, payment_status,
     pay_amount, pay_currency,
@@ -226,7 +221,7 @@ async function handleFundedPayment(env, data) {
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Failed to initialise Firebase Admin:', err.message);
     return;
@@ -237,7 +232,7 @@ async function handleFundedPayment(env, data) {
     const subSnap = await db.collection('subscriptions').doc(order_id).get().catch(() => null);
     if (subSnap && subSnap.exists) {
       const sub = subSnap.data();
-      await handleProUpgrade({ db, env, uid: sub.uid, billingPeriod: sub.billingPeriod, subscriptionId: order_id, gateway: 'crypto', amount: Number(outcome_amount || pay_amount || 0) });
+      await handleProUpgrade({ db, uid: sub.uid, billingPeriod: sub.billingPeriod, subscriptionId: order_id, gateway: 'crypto', amount: Number(outcome_amount || pay_amount || 0) });
     } else {
       console.error(`[pro_upgrade] Subscription doc "${order_id}" not found.`);
     }
@@ -494,12 +489,12 @@ async function handleFundedPayment(env, data) {
         } catch (_) {}
       }
 
-      const platformUrl   = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+      const platformUrl   = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
       const invoiceAmount = new Intl.NumberFormat('en', { style: 'currency', currency: invConfirmedCurrency }).format(invConfirmedAmount);
 
       /* ── Notify seller: payment in escrow ── */
       if (sellerUid) {
-        await callFunction(env, 'send-smart-notification', {
+        await callFunction('send-smart-notification', {
           userUid:    sellerUid,
           to:         freelancerEmail || null,
           title:      'Payment Held in Escrow',
@@ -518,7 +513,7 @@ async function handleFundedPayment(env, data) {
 
       /* ── Email buyer: payment secured in escrow ── */
       if (clientEmail) {
-        await callFunction(env, 'send-email', {
+        await callFunction('send-email', {
           to:     clientEmail,
           toName: clientName,
           type:   'invoice-escrow-held-buyer',
@@ -677,7 +672,6 @@ async function handleFundedPayment(env, data) {
     // Credit affiliate commission if this order was referred
     const { finalSellerAmount } = await creditAffiliateCommission({
       db,
-      env,
       order,
       orderId:           order_id,
       sellerAmount:      productSellerAmount,
@@ -690,7 +684,7 @@ async function handleFundedPayment(env, data) {
     // Trigger delivery with the final seller amount (after any affiliate deduction).
     // Uses the retrying caller — this single call credits the seller's balance,
     // increments salesCount, and sends their sale notification.
-    const deliveryDispatch = await callFunctionWithRetry(env, 'deliver-product', { orderId: order_id, sellerAmount: finalSellerAmount });
+    const deliveryDispatch = await callFunctionWithRetry('deliver-product', { orderId: order_id, sellerAmount: finalSellerAmount });
     if (!deliveryDispatch.success) {
       try {
         await orderRef.update({
@@ -708,7 +702,7 @@ async function handleFundedPayment(env, data) {
       const productSnap = await db.collection('products').doc(order.productId).get();
       const fbPixelId = productSnap.exists && productSnap.data().integrations && productSnap.data().integrations.facebookPixelId;
       if (fbPixelId) {
-        await callFunction(env, 'pixel-event', {
+        await callFunction('pixel-event', {
           pixelId:   fbPixelId,
           eventName: 'Purchase',
           value:     confirmedAmount,
@@ -849,7 +843,7 @@ async function handleFundedPayment(env, data) {
     }
   }
 
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const projectUrl  = `${platformUrl}/dashboard-projects.html?projectId=${encodeURIComponent(order_id)}`;
 
   /* Fetch freelancer and buyer details for the notification */
@@ -876,7 +870,7 @@ async function handleFundedPayment(env, data) {
   }
 
   /* Notify the freelancer: payment received (push + email always) */
-  await callFunction(env, 'send-smart-notification', {
+  await callFunction('send-smart-notification', {
     userUid:    project.freelancerUid || null,
     to:         freelancerEmail,
     title:      'Escrow Funded',
@@ -1055,12 +1049,12 @@ async function creditAffiliateCommission({ db, order, orderId, sellerAmount, con
    Marks the project or product-order payment status so the buyer
    can retry. Checks product-orders first, then falls back to projects.
 ══════════════════════════════════════════════════════════════ */
-async function handleFailedPayment(env, { order_id, payment_id, payment_status }) {
+async function handleFailedPayment({ order_id, payment_id, payment_status }) {
   if (!order_id) return;
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed (failed payment handler):', err.message);
     return;
@@ -1123,12 +1117,12 @@ async function handleFailedPayment(env, { order_id, payment_id, payment_status }
       const invOrderData    = invOrderSnap.data();
       const failedSellerUid = invOrderData ? (invOrderData.sellerUid || null) : null;
       if (failedSellerUid) {
-        const platformUrl      = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+        const platformUrl      = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
         const failedInvoiceRef = invOrderData.invoiceId || order_id;
         const friendlyStatus   = payment_status === 'expired'  ? 'expired'
                                : payment_status === 'refunded' ? 'refunded'
                                : 'failed';
-        callFunction(env, 'send-smart-notification', {
+        callFunction('send-smart-notification', {
           userUid:    failedSellerUid,
           title:      'Invoice Payment ' + friendlyStatus.charAt(0).toUpperCase() + friendlyStatus.slice(1),
           body:       `A crypto payment for invoice ${failedInvoiceRef} ${friendlyStatus}. You may want to follow up with your client to arrange a retry.`,
@@ -1160,8 +1154,8 @@ async function handleFailedPayment(env, { order_id, payment_id, payment_status }
    Calls sibling Netlify functions via HTTP fetch.
    Non-fatal: errors are logged and execution continues.
 ══════════════════════════════════════════════════════════════ */
-async function callFunction(env, name, payload) {
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(name, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`callFunction: PLATFORM_URL not set, cannot call ${name}.`);
     return;
@@ -1171,7 +1165,7 @@ async function callFunction(env, name, payload) {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': (env && env.INTERNAL_FUNCTION_SECRET) || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -1189,8 +1183,8 @@ async function callFunction(env, name, payload) {
    retries up to 3 times with a short backoff and reports whether
    it ultimately succeeded.
 ══════════════════════════════════════════════════════════════ */
-async function callFunctionWithRetry(env, name, payload, maxAttempts = 3) {
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunctionWithRetry(name, payload, maxAttempts = 3) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`callFunctionWithRetry: PLATFORM_URL not set, cannot call ${name}.`);
     return { success: false, reason: 'PLATFORM_URL not set' };
@@ -1204,7 +1198,7 @@ async function callFunctionWithRetry(env, name, payload, maxAttempts = 3) {
         method:  'POST',
         headers: {
           'Content-Type':     'application/json',
-          'x-internal-secret': (env && env.INTERNAL_FUNCTION_SECRET) || '',
+          'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
         },
         body:    JSON.stringify(payload),
       });
@@ -1233,7 +1227,7 @@ async function callFunctionWithRetry(env, name, payload, maxAttempts = 3) {
 
 
 /* ── Pro Upgrade handler ── */
-async function handleProUpgrade({ db, env, uid, billingPeriod, subscriptionId, gateway, amount }) {
+async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gateway, amount }) {
   if (!uid) {
     console.error('[pro_upgrade] Missing uid — cannot activate Pro.');
     return;
@@ -1248,7 +1242,7 @@ async function handleProUpgrade({ db, env, uid, billingPeriod, subscriptionId, g
       planStatus:       'active',
       premiumStartDate: now,
       premiumEndDate:   endDate,
-      updatedAt:        FieldValue.serverTimestamp(),
+      updatedAt:        require('firebase-admin/firestore').FieldValue.serverTimestamp(),
     });
     if (subscriptionId) {
       await db.collection('subscriptions').doc(subscriptionId).update({
@@ -1258,7 +1252,7 @@ async function handleProUpgrade({ db, env, uid, billingPeriod, subscriptionId, g
       }).catch(() => {});
     }
     console.log(`[pro_upgrade] uid: ${uid} activated Pro via ${gateway} — expires ${endDate.toISOString()}`);
-    const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+    const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
     if (platformUrl) {
       const userSnap = await db.collection('users').doc(uid).get().catch(() => null);
       const userData = userSnap?.exists ? userSnap.data() : {};
@@ -1267,7 +1261,7 @@ async function handleProUpgrade({ db, env, uid, billingPeriod, subscriptionId, g
       if (toEmail) {
         await fetch(`${platformUrl}/.netlify/functions/send-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-secret': (env && env.INTERNAL_FUNCTION_SECRET) || '' },
+          headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
           body: JSON.stringify({
             to: toEmail, type: 'premium-activated',
             data: { name, plan: 'Pro', billingPeriod: billingPeriod === 'annual' ? 'Annual' : 'Monthly',
@@ -1282,10 +1276,11 @@ async function handleProUpgrade({ db, env, uid, billingPeriod, subscriptionId, g
   }
 }
 
-/* ── Utility: build a Workers Response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json' },
-  });
+    body: JSON.stringify(body),
+  };
 }

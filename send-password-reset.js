@@ -33,18 +33,18 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                  from 'firebase-admin/firestore';
-import { getAuth }                       from 'firebase-admin/auth';
-import { checkRateLimit }                from './_rate-limit';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                  = require('firebase-admin/firestore');
+const { getAuth }                       = require('firebase-admin/auth');
+const { checkRateLimit }                = require('./_rate-limit');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db   = null;
 let _auth = null;
 
-function getAdminDb(env) {
+function getAdminDb() {
   if (_db) return _db;
-  const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+  const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   if (!getApps().length) {
     initializeApp({ credential: cert(sa) });
   }
@@ -59,22 +59,18 @@ function getAdminAuth() {
   return _auth;
 }
 
-/* ── Standard JSON response helper ──
-   Workers' Response constructor throws if a null-body status (204, 205,
-   304) is given a non-null body, so those statuses are sent with a null
-   body regardless of what's passed in — matches actual HTTP semantics,
-   which Netlify's Lambda-style object responses didn't enforce. ── */
+/* ── Standard JSON response helper ── */
 function respond(statusCode, body) {
-  const isNullBodyStatus = statusCode === 204 || statusCode === 205 || statusCode === 304;
-  return new Response(isNullBodyStatus ? null : JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 /* ── Generic success response — never reveal account existence ── */
@@ -83,24 +79,21 @@ const GENERIC_SUCCESS = {
   message: 'If an account exists for that email address, a password reset link has been sent.',
 };
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function (event) {
   /* ── CORS preflight ── */
-  if (request.method === 'OPTIONS') {
+  if (event.httpMethod === 'OPTIONS') {
     return respond(204, {});
   }
 
-  const rawText = await request.text();
-
   /* ── Only accept POST ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── Parse body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -116,7 +109,7 @@ export async function onRequest(context) {
   /* ── Initialise Firebase Admin (needed for rate limit + user lookup) ── */
   let db;
   try {
-    db = getAdminDb(env);
+    db = getAdminDb();
   } catch (err) {
     console.error('[send-password-reset] Firebase init error:', err.message);
     return respond(500, { error: 'Internal server error.' });
@@ -136,7 +129,7 @@ export async function onRequest(context) {
     console.warn('[send-password-reset] Rate limit check failed (failing open):', err.message);
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   /* ── Look up user + generate reset link ── */
   let resetLink;
@@ -176,7 +169,7 @@ export async function onRequest(context) {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body: JSON.stringify({
         to:         rawEmail,
@@ -202,4 +195,4 @@ export async function onRequest(context) {
   }
 
   return respond(200, GENERIC_SUCCESS);
-  }
+};

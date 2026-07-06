@@ -24,19 +24,17 @@
 
 const REMOVEBG_API_URL = 'https://api.remove.bg/v1.0/removebg';
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── Parse body ── */
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -54,7 +52,7 @@ export async function onRequest(context) {
   }
 
   /* ── Check env var ── */
-  const apiKey = env.REMOVEBG_API_KEY;
+  const apiKey = process.env.REMOVEBG_API_KEY;
   if (!apiKey) {
     console.error('REMOVEBG_API_KEY environment variable is not set.');
     return respond(500, { error: 'Background removal service is not configured.' });
@@ -126,7 +124,7 @@ export async function onRequest(context) {
   let resultBase64;
   try {
     const arrayBuffer = await removeBgResponse.arrayBuffer();
-    resultBase64      = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    resultBase64      = Buffer.from(arrayBuffer).toString('base64');
   } catch (err) {
     console.error('Failed to read remove.bg response body:', err.message);
     return respond(502, { error: 'Failed to process the background removal result.' });
@@ -140,15 +138,16 @@ export async function onRequest(context) {
   console.log(`remove.bg success — size: ${safeSize}, outputBytes: ~${Math.round(resultBase64.length * 0.75 / 1024)}KB`);
 
   return respond(200, { resultBase64 });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

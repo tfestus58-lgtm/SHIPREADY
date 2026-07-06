@@ -22,20 +22,20 @@
  *   FIREBASE_SERVICE_ACCOUNT  — full service account JSON as one-line string
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                  from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
 
 const PAGE_SIZE = 20;
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -48,39 +48,36 @@ function getDb(env) {
   return _db;
 }
 
-/* ── Utility: build a Response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
   /* ── Accept GET only ── */
-  if (request.method !== 'GET') {
+  if (event.httpMethod !== 'GET') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
-  const url       = new URL(request.url);
-  const params    = url.searchParams;
-  const category  = (params.get('category') || '').trim();
-  const budgetMinRaw = params.get('budgetMin');
-  const budgetMaxRaw = params.get('budgetMax');
-  const budgetMin = budgetMinRaw !== null ? Number(budgetMinRaw) : null;
-  const budgetMax = budgetMaxRaw !== null ? Number(budgetMaxRaw) : null;
-  const page      = Math.max(1, parseInt(params.get('page'), 10) || 1);
+  const params = event.queryStringParameters || {};
+  const category  = (params.category || '').trim();
+  const budgetMin = params.budgetMin !== undefined ? Number(params.budgetMin) : null;
+  const budgetMax = params.budgetMax !== undefined ? Number(params.budgetMax) : null;
+  const page      = Math.max(1, parseInt(params.page, 10) || 1);
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── Build the Firestore query ──
        Range filters on budgetMin/budgetMax are deliberately NOT applied here
@@ -134,4 +131,4 @@ export async function onRequest(context) {
     console.error('[get-briefs] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};

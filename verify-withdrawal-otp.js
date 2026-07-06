@@ -12,13 +12,13 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { verifyCaller }                  from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { verifyCaller }                  = require('./_verify-auth');
 
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     initializeApp({ credential: cert(sa) });
   }
   return getFirestore();
@@ -27,36 +27,35 @@ function getDb(env) {
 // Issue 8 fix: OTP is now stored as sha256(otp) in Firestore.
 // Verification hashes the submitted code and compares hashes — the raw
 // plaintext code is never stored or compared directly.
-async function hashOtp(otp) {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(otp).trim()));
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+function hashOtp(otp) {
+  const { createHash } = require('crypto');
+  return createHash('sha256').update(String(otp).trim()).digest('hex');
 }
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') return respond(204, {});
-  if (request.method !== 'POST')    return respond(405, { error: 'Method not allowed.' });
+exports.handler = async function (event) {
+  if (event.httpMethod === 'OPTIONS') return respond(204, {});
+  if (event.httpMethod !== 'POST')    return respond(405, { error: 'Method not allowed.' });
 
   /* ── Auth ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) return respond(401, { error: 'Unauthorized. Please log in again.' });
 
-  const rawText = await request.text();
   let uid, code;
   try {
-    ({ uid, code } = JSON.parse(rawText || '{}'));
+    ({ uid, code } = JSON.parse(event.body || '{}'));
   } catch {
     return respond(400, { error: 'Invalid request body.' });
   }
@@ -67,7 +66,7 @@ export async function onRequest(context) {
   /* ── Get user ── */
   let db, userSnap;
   try {
-    db       = getDb(env);
+    db       = getDb();
     userSnap = await db.collection('users').doc(uid).get();
   } catch (err) {
     console.error('[verify-withdrawal-otp] Firestore read error:', err.message);
@@ -120,7 +119,7 @@ export async function onRequest(context) {
 
   /* ── Check code matches ── */
   // Issue 8 fix: compare sha256(submittedCode) against the stored hash.
-  if ((await hashOtp(code)) !== String(user.withdrawalOtp).trim()) {
+  if (hashOtp(code) !== String(user.withdrawalOtp).trim()) {
     // Increment the attempt counter so the cap above eventually triggers.
     try {
       await db.collection('users').doc(uid).update({
@@ -160,4 +159,4 @@ export async function onRequest(context) {
 
   console.log(`[verify-withdrawal-otp] uid ${uid} OTP verified successfully.`);
   return respond(200, { success: true });
-}
+};

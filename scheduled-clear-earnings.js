@@ -31,18 +31,18 @@
  *   FIREBASE_SERVICE_ACCOUNT — full service account JSON as single-line string
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -58,27 +58,38 @@ function getDb(env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-// NOTE: Cloudflare Pages Functions have no Cron Trigger mechanism, so
-// this scheduled() handler is preserved here as a plain export but is
-// NOT currently invoked by anything on Pages. See migration notes.
-export async function scheduled(event, env, ctx) {
+exports.handler = async (event) => {
 
-  /* ── Trigger source ──
-     Cloudflare Workers' scheduled() handler can only ever be invoked by
-     Cloudflare's own Cron Trigger system — there is no public URL that
-     reaches it, unlike Netlify's event.headers-based check this replaces.
-     The fetch() handler below is the only HTTP-reachable entry point for
-     this file, and it never runs this business logic. No auth check is
-     needed here as a result. */
+  /* ── Verify trigger source (FIX) ──
+     This function does substantial Firestore reads/writes and was
+     previously reachable by anyone at its public function URL with no
+     auth check at all. The records it acts on are time-gated (clearsAt /
+     deliverBy / cutoff already in the past), so this couldn't be used to
+     release funds early or target a specific user — but it was still an
+     open door for cost/resource abuse (repeated unauthenticated triggers
+     forcing full collection scans and writes).
+     Netlify's own scheduler sends 'X-NF-Event: schedule' on real cron
+     invocations. We also accept a valid x-internal-secret so this can
+     still be triggered manually/for testing (e.g. from the admin panel
+     or another internal function), consistent with every other
+     server-to-server check in this codebase. */
+  const nfEvent       = event.headers['x-nf-event'] || event.headers['X-NF-Event'] || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
+  const isRealSchedule = nfEvent === 'schedule';
+  const isTrustedCall  = !!expectedSecret && incomingSecret === expectedSecret;
+  if (!isRealSchedule && !isTrustedCall) {
+    return respond(401, { error: 'Unauthorized.' });
+  }
 
   console.log('scheduled-clear-earnings: running at', new Date().toISOString());
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
-    return;
+    return respond(500, { error: 'Database not available.' });
   }
 
   const now = new Date();
@@ -405,9 +416,15 @@ export async function scheduled(event, env, ctx) {
   }
 
   console.log('scheduled-clear-earnings: complete —', JSON.stringify(results));
-  }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response('Scheduled function — not callable via HTTP.', { status: 200 });
-  }
+  return respond(200, results);
+};
+
+/* ── Utility ── */
+function respond(statusCode, body) {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}

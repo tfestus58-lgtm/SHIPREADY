@@ -38,18 +38,18 @@
  *                               calling send-email (server-to-server call)
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -63,8 +63,8 @@ function getDb(env) {
 }
 
 /* ── Call a sibling Netlify function ── */
-async function callFunction(env, name, payload) {
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(name, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`callFunction: PLATFORM_URL not set, cannot call ${name}.`);
     return null;
@@ -74,7 +74,7 @@ async function callFunction(env, name, payload) {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': (env && env.INTERNAL_FUNCTION_SECRET) || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -88,29 +88,32 @@ async function callFunction(env, name, payload) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-// NOTE: Cloudflare Pages Functions have no Cron Trigger mechanism, so
-// this scheduled() handler is preserved here as a plain export but is
-// NOT currently invoked by anything on Pages. See migration notes.
-export async function scheduled(event, env, ctx) {
+exports.handler = async (event) => {
 
-  /* ── Trigger source ──
-     Cloudflare Workers' scheduled() handler can only ever be invoked by
-     Cloudflare's own Cron Trigger system — there is no public URL that
-     reaches it, unlike Netlify's event.headers-based check this replaces.
-     The fetch() handler below is the only HTTP-reachable entry point for
-     this file, and it never runs this business logic. No auth check is
-     needed here as a result. (Note: the original event.headers-based
-     check could not simply be left in place — ScheduledEvent has no
-     .headers property, so it would have evaluated isRealSchedule/
-     isTrustedCall to false on every real cron run and rejected every
-     invocation with 401, silently breaking the entire email queue.) */
+  /* ── Verify trigger source (FIX) ──
+     Previously this function had no auth check at all (and didn't even
+     accept the `event` parameter needed to check one). It only acts on
+     already-due queue entries (no attacker-controlled targeting), but
+     was still an open door for unauthenticated cost/resource abuse —
+     repeated triggers could force excess email sends. Netlify's own
+     scheduler sends 'X-NF-Event: schedule' on real cron invocations; we
+     also accept a valid x-internal-secret for manual/internal
+     triggering, matching the rest of this codebase. */
+  const nfEvent        = (event && event.headers && (event.headers['x-nf-event'] || event.headers['X-NF-Event'])) || '';
+  const incomingSecret = (event && event.headers && (event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'])) || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
+  const isRealSchedule = nfEvent === 'schedule';
+  const isTrustedCall  = !!expectedSecret && incomingSecret === expectedSecret;
+  if (!isRealSchedule && !isTrustedCall) {
+    return respond(401, { error: 'Unauthorized.' });
+  }
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
-    return;
+    return respond(500, { error: 'Database not available.' });
   }
 
   const now = Date.now();
@@ -144,7 +147,7 @@ export async function scheduled(event, env, ctx) {
     const isMissingIndex = err && err.code === 9; // FAILED_PRECONDITION
     if (!isMissingIndex) {
       console.error('Firestore email-queue query failed:', err.message);
-      return;
+      return respond(500, { error: 'Queue query failed.' });
     }
 
     console.warn(
@@ -170,13 +173,13 @@ export async function scheduled(event, env, ctx) {
       usedFallbackQuery = true;
     } catch (fallbackErr) {
       console.error('Firestore email-queue fallback query also failed:', fallbackErr.message);
-      return;
+      return respond(500, { error: 'Queue query failed.' });
     }
   }
 
   if (snapshot.empty) {
     console.log('process-email-queue: no pending items.');
-    return;
+    return respond(200, { processed: 0 });
   }
 
   console.log(`process-email-queue: processing ${snapshot.size} item(s).`);
@@ -317,7 +320,7 @@ export async function scheduled(event, env, ctx) {
 
     /* ── Send the email ── */
     try {
-      const res = await callFunction(env, 'send-email', {
+      const res = await callFunction('send-email', {
         to:     recipientEmail,
         toName: recipientName || undefined,
         templateId,
@@ -382,9 +385,14 @@ export async function scheduled(event, env, ctx) {
     `process-email-queue done. processed=${processed} skipped=${skipped} errors=${errors}` +
     (usedFallbackQuery ? ' (used fallback query — composite index missing/building)' : '')
   );
-  }
+  return respond(200, { processed, skipped, errors, usedFallbackQuery });
+};
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response('Scheduled function — not callable via HTTP.', { status: 200 });
-  }
+/* ── Utility ── */
+function respond(statusCode, body) {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}

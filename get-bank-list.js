@@ -37,7 +37,7 @@
  *   STRIPE_SECRET_KEY — Stripe secret key (only needed for Stripe countries)
  */
 
-import { verifyCaller } from './_verify-auth';
+const { verifyCaller } = require('./_verify-auth');
 
 const FLW_BASE    = 'https://api.flutterwave.com/v3';
 const STRIPE_BASE = 'https://api.stripe.com/v1';
@@ -125,7 +125,7 @@ const CURRENCY_TO_COUNTRY = {
    codebase. Return null instead — the frontend already handles null gracefully
    by hiding the estimate row entirely rather than showing a stale figure.
 ───────────────────────────────────────────────────────────────────────────── */
-async function fetchGatewayFxRate(env, payoutCurrency) {
+async function fetchGatewayFxRate(payoutCurrency) {
   payoutCurrency = payoutCurrency.toUpperCase();
 
   const STRIPE_CURRENCIES_SET = new Set([
@@ -134,10 +134,10 @@ async function fetchGatewayFxRate(env, payoutCurrency) {
 
   if (STRIPE_CURRENCIES_SET.has(payoutCurrency)) {
     if (payoutCurrency === 'USD') return 1;
-    const stripeKey = env.STRIPE_SECRET_KEY;
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) return null;
     try {
-      const auth = 'Basic ' + btoa(stripeKey + ':');
+      const auth = 'Basic ' + Buffer.from(stripeKey + ':').toString('base64');
       // Use the single-resource endpoint /v1/exchange_rates/usd which returns
       // { "id": "usd", "rates": { "gbp": 0.79, "eur": 0.91, ... } } directly.
       // The list endpoint (?currency=usd) wraps rates inside data[0].rates,
@@ -154,7 +154,7 @@ async function fetchGatewayFxRate(env, payoutCurrency) {
   }
 
   // FLW currencies
-  const flwKey = env.FLW_SECRET_KEY;
+  const flwKey = process.env.FLW_SECRET_KEY;
   if (!flwKey) return null;
   try {
     const res = await fetch(
@@ -172,29 +172,27 @@ async function fetchGatewayFxRate(env, payoutCurrency) {
 /* ─────────────────────────────────────────────────────────────────────────────
    HANDLER
 ───────────────────────────────────────────────────────────────────────────── */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function (event) {
   const CORS = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   };
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS });
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS, body: '' };
   }
-  if (request.method !== 'GET') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405, headers: CORS });
+  if (event.httpMethod !== 'GET') {
+    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed.' }) };
   }
 
   /* ── Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized. Please log in again.' }), { status: 401, headers: CORS });
+    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized. Please log in again.' }) };
   }
 
-  const url = new URL(request.url);
-  const params = Object.fromEntries(url.searchParams);
+  const params = event.queryStringParameters || {};
 
   /* ── Resolve country code ──
    * `country` param wins when present (new callers).
@@ -208,10 +206,11 @@ export async function onRequest(context) {
   }
 
   if (!countryParam) {
-    return new Response(JSON.stringify({ error: 'A country or currency parameter is required.' }), {
-      status: 400,
+    return {
+      statusCode: 400,
       headers: CORS,
-    });
+      body: JSON.stringify({ error: 'A country or currency parameter is required.' }),
+    };
   }
 
   /* ─────────────────────────────────────────────────────────────────
@@ -220,20 +219,21 @@ export async function onRequest(context) {
   if (COUNTRY_TO_STRIPE[countryParam]) {
     const cfg = COUNTRY_TO_STRIPE[countryParam];
     const stripeFields = { type: cfg.type, fields: cfg.fields, label: cfg.label };
-    const fxRate = await fetchGatewayFxRate(env, cfg.payoutCurrency);
+    const fxRate = await fetchGatewayFxRate(cfg.payoutCurrency);
 
-    return new Response(JSON.stringify({
-      banks:          [],
-      country:        countryParam,
-      payoutCurrency: cfg.payoutCurrency, // native currency of this country
-      currency:       cfg.payoutCurrency, // kept for legacy callers that read `currency`
-      stripeFields,
-      fxRate,
-      fxSource: 'stripe',
-    }), {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({
+        banks:          [],
+        country:        countryParam,
+        payoutCurrency: cfg.payoutCurrency, // native currency of this country
+        currency:       cfg.payoutCurrency, // kept for legacy callers that read `currency`
+        stripeFields,
+        fxRate,
+        fxSource: 'stripe',
+      }),
+    };
   }
 
   /* ─────────────────────────────────────────────────────────────────
@@ -241,14 +241,15 @@ export async function onRequest(context) {
   ───────────────────────────────────────────────────────────────── */
   if (COUNTRY_TO_FLW[countryParam]) {
     const cfg    = COUNTRY_TO_FLW[countryParam];
-    const flwKey = env.FLW_SECRET_KEY;
+    const flwKey = process.env.FLW_SECRET_KEY;
 
     if (!flwKey) {
       console.error('[get-bank-list] FLW_SECRET_KEY not set.');
-      return new Response(JSON.stringify({ error: 'Bank lookup is temporarily unavailable.' }), {
-        status: 503,
+      return {
+        statusCode: 503,
         headers: CORS,
-      });
+        body: JSON.stringify({ error: 'Bank lookup is temporarily unavailable.' }),
+      };
     }
 
     try {
@@ -271,33 +272,36 @@ export async function onRequest(context) {
         .sort((a, b) => a.name.localeCompare(b.name));
 
       // Fetch live FLW rate best-effort — never blocks the bank list response
-      const fxRate = await fetchGatewayFxRate(env, cfg.payoutCurrency).catch(() => null);
+      const fxRate = await fetchGatewayFxRate(cfg.payoutCurrency).catch(() => null);
 
-      return new Response(JSON.stringify({
-        banks,
-        country:        countryParam,
-        payoutCurrency: cfg.payoutCurrency, // native currency of this country
-        currency:       cfg.payoutCurrency, // kept for legacy callers that read `currency`
-        fxRate,
-        fxSource: 'flutterwave',
-      }), {
-        status: 200,
+      return {
+        statusCode: 200,
         headers: { ...CORS, 'Content-Type': 'application/json' },
-      });
+        body: JSON.stringify({
+          banks,
+          country:        countryParam,
+          payoutCurrency: cfg.payoutCurrency, // native currency of this country
+          currency:       cfg.payoutCurrency, // kept for legacy callers that read `currency`
+          fxRate,
+          fxSource: 'flutterwave',
+        }),
+      };
     } catch (err) {
       console.error('[get-bank-list] Failed to fetch bank list:', err.message);
-      return new Response(JSON.stringify({ error: 'Could not load bank list. Please try again.' }), {
-        status: 502,
+      return {
+        statusCode: 502,
         headers: CORS,
-      });
+        body: JSON.stringify({ error: 'Could not load bank list. Please try again.' }),
+      };
     }
   }
 
   /* ─────────────────────────────────────────────────────────────────
      UNSUPPORTED COUNTRY
   ───────────────────────────────────────────────────────────────── */
-  return new Response(JSON.stringify({ error: `Bank transfers are not yet supported for country: ${countryParam}.` }), {
-    status: 400,
+  return {
+    statusCode: 400,
     headers: CORS,
-  });
-}
+    body: JSON.stringify({ error: `Bank transfers are not yet supported for country: ${countryParam}.` }),
+  };
+};

@@ -34,23 +34,23 @@
  *   FIREBASE_SERVICE_ACCOUNT  — full service account JSON as one-line string
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { verifyCaller }                  from './_verify-auth';
-import { checkRateLimit }                from './_rate-limit';
-import { sanitizeString }                from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
+const { checkRateLimit }               = require('./_rate-limit');
+const { sanitizeString }               = require('./_sanitize');
 
 const VALID_CATEGORIES = ['Design', 'Development', 'Writing', 'Marketing', 'Video', 'Audio', 'Business', 'Other'];
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -63,31 +63,30 @@ function getDb(env) {
   return _db;
 }
 
-/* ── Utility: build a Response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 1. Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
@@ -95,13 +94,13 @@ export async function onRequest(context) {
   /* ── 2. Parse request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── 3. Role check ── */
     const userSnap = await db.collection('users').doc(callerUid).get();
@@ -203,4 +202,4 @@ export async function onRequest(context) {
     console.error('[post-brief] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};

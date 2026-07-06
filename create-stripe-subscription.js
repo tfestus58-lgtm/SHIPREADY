@@ -47,9 +47,9 @@
  *   502 — Stripe API error
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { getSettings }                  = require('./get-settings');
 
 /* ── Stripe Checkout Sessions endpoint ── */
 const STRIPE_CHECKOUT_URL = 'https://api.stripe.com/v1/checkout/sessions';
@@ -57,12 +57,12 @@ const STRIPE_CHECKOUT_URL = 'https://api.stripe.com/v1/checkout/sessions';
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -103,19 +103,16 @@ function toFormEncoded(obj, prefix) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Verify internal caller — this function is never called directly by the browser ── */
-  const incomingSecret = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedSecret = env.INTERNAL_FUNCTION_SECRET || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
   if (!expectedSecret || incomingSecret !== expectedSecret) {
     return respond(401, { error: 'Unauthorized.' });
   }
@@ -123,7 +120,7 @@ export async function onRequest(context) {
   /* ── 3. Parse and validate request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -155,13 +152,13 @@ export async function onRequest(context) {
   }
 
   /* ── 4. Pull environment variables ── */
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.error('[create-stripe-subscription] PLATFORM_URL is not set.');
     return respond(500, { error: 'Platform URL is not configured. Please contact support.' });
   }
 
-  const stripeKey = env.STRIPE_SECRET_KEY;
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     console.error('[create-stripe-subscription] STRIPE_SECRET_KEY is not set.');
     return respond(500, { error: 'Stripe is not configured. Please contact support.' });
@@ -170,7 +167,7 @@ export async function onRequest(context) {
   try {
 
     /* ── 5. Init Firebase and check platform settings ── */
-    const db       = getDb(env);
+    const db       = getDb();
     const settings = await getSettings(db);
 
     if (!settings.stripeEnabled) {
@@ -294,15 +291,16 @@ export async function onRequest(context) {
     console.error('[create-stripe-subscription] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};
 
-/* ── Utility: build a Workers function response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

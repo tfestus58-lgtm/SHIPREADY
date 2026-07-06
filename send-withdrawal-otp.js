@@ -13,22 +13,22 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { verifyCaller } from './_verify-auth';
-import { checkRateLimit } from './_rate-limit';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { verifyCaller }                  = require('./_verify-auth');
+const { checkRateLimit }                = require('./_rate-limit');
 
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     initializeApp({ credential: cert(sa) });
   }
   return getFirestore();
 }
 
 function respond(statusCode, body, headers = {}) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
@@ -36,40 +36,35 @@ function respond(statusCode, body, headers = {}) {
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       ...headers,
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 function generateOtp() {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  const code = 100000 + (array[0] % 900000);
-  return String(code);
+  const { randomInt } = require('crypto');
+  return String(randomInt(100000, 999999));
 }
 
 // Issue 8 fix: hash the OTP before storing it in Firestore so that even
 // if the users document is read (e.g. by a future rule regression or an
 // admin SDK leak), the raw code cannot be recovered. The plaintext OTP is
 // still sent to the user's email — it never touches Firestore.
-async function hashOtp(otp) {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(otp));
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+function hashOtp(otp) {
+  const { createHash } = require('crypto');
+  return createHash('sha256').update(otp).digest('hex');
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') return respond(204, {});
-
-  const rawText = await request.text();
-
-  if (request.method !== 'POST')    return respond(405, { error: 'Method not allowed.' });
+exports.handler = async function (event) {
+  if (event.httpMethod === 'OPTIONS') return respond(204, {});
+  if (event.httpMethod !== 'POST')    return respond(405, { error: 'Method not allowed.' });
 
   /* ── Auth ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) return respond(401, { error: 'Unauthorized. Please log in again.' });
 
   let uid;
   try {
-    ({ uid } = JSON.parse(rawText || '{}'));
+    ({ uid } = JSON.parse(event.body || '{}'));
   } catch {
     return respond(400, { error: 'Invalid request body.' });
   }
@@ -81,7 +76,7 @@ export async function onRequest(context) {
   /* ── Get user from Firestore ── */
   let db, userSnap;
   try {
-    db       = getDb(env);
+    db       = getDb();
 
     /* ── Server-side rate limit: 5 OTP sends per 10 minutes per uid ──
        Complements the existing 60-second per-request cooldown stored on the
@@ -125,7 +120,7 @@ export async function onRequest(context) {
      verify-withdrawal-otp.js). */
   try {
     await db.collection('users').doc(uid).update({
-      withdrawalOtp:         await hashOtp(otp),  // Issue 8 fix: stored as sha256 hash, not plaintext
+      withdrawalOtp:         hashOtp(otp),  // Issue 8 fix: stored as sha256 hash, not plaintext
       withdrawalOtpExpiry:   expiry,
       withdrawalOtpSentAt:   FieldValue.serverTimestamp(),
       withdrawalOtpUsed:     false,
@@ -137,11 +132,11 @@ export async function onRequest(context) {
   }
 
   /* ── Send email ── */
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   try {
     await fetch(`${platformUrl}/.netlify/functions/send-email`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
       body: JSON.stringify({
         to:         user.email,
         type:       'withdrawal-otp',
@@ -158,4 +153,4 @@ export async function onRequest(context) {
 
   console.log(`[send-withdrawal-otp] OTP sent to uid ${uid} at ${user.email}`);
   return respond(200, { success: true });
-  }
+};

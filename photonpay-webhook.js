@@ -11,10 +11,7 @@
  * Do NOT add this URL to any payment provider's webhook dashboard
  * until the real implementation is in place.
  */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response(JSON.stringify({ message: 'PhotonPay webhook not yet implemented.' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+exports.handler = async () => ({
+  statusCode: 200,
+  body: JSON.stringify({ message: 'PhotonPay webhook not yet implemented.' }),
+});

@@ -44,16 +44,16 @@
  *   INTERNAL_FUNCTION_SECRET  — shared secret for calling send-smart-notification
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
+const crypto = require('crypto');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
 
 /* ── Initialise Firebase Admin SDK once (survives warm Lambda invocations) ── */
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
     let serviceAccount;
     try {
-      serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
     } catch {
       throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not valid JSON.');
     }
@@ -67,33 +67,35 @@ const SUCCESS_STATUSES = new Set(['finished']);
 const PENDING_STATUSES = new Set(['waiting', 'creating', 'processing', 'sending']);
 const FAILED_STATUSES  = new Set(['failed', 'rejected', 'expired']);
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method !== 'POST') {
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
-  /* ── Raw body ──────────────────────────────────────────────────────────────
-     Cloudflare Workers' request.text() always returns the raw body as a
-     UTF-8 string directly — no base64 decoding guard needed here, unlike
-     the old Netlify event.body/isBase64Encoded handling.
+  /* ── Issue 7 fix: base64 decode guard ──────────────────────────────────────
+     Same fix as nowpayments-webhook.js — Netlify can deliver the body
+     base64-encoded (event.isBase64Encoded === true). Without the guard the
+     HMAC is computed over the base64 string, causing all payout-webhook
+     callbacks to fail signature verification.
   ─────────────────────────────────────────────────────────────────────────── */
-  const rawBody = await request.text();
+  const rawBody = event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf8')
+    : (event.body || '');
 
   /* ── Verify IPN signature — identical scheme to nowpayments-webhook.js ── */
-  const ipnSecret = env.NOWPAYMENTS_IPN_SECRET;
+  const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
   if (!ipnSecret) {
     console.error('NOWPAYMENTS_IPN_SECRET environment variable is not set.');
     return respond(500, { error: 'Webhook not configured.' });
   }
 
-  const receivedSig = (request.headers.get('x-nowpayments-sig') || '').toLowerCase();
+  const receivedSig = (event.headers['x-nowpayments-sig'] || '').toLowerCase();
   if (!receivedSig) {
     console.warn('[payout-webhook] Received with no x-nowpayments-sig header — rejected.');
     return respond(401, { error: 'Missing signature.' });
   }
 
-  if (!(await verifySignature(rawBody, ipnSecret, receivedSig))) {
+  if (!verifySignature(rawBody, ipnSecret, receivedSig)) {
     console.warn('[payout-webhook] Signature mismatch — possible spoofed request. Rejected.');
     return respond(401, { error: 'Invalid signature.' });
   }
@@ -126,21 +128,21 @@ export async function onRequest(context) {
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('[payout-webhook] Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Internal configuration error.' });
   }
 
   try {
-    await processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extraId, rawStatus, txHash, errorDetail });
+    await processPayoutStatusUpdate(db, { withdrawalId, batchId, extraId, rawStatus, txHash, errorDetail });
   } catch (err) {
     console.error('[payout-webhook] processPayoutStatusUpdate failed:', err.message);
     return respond(500, { error: 'Refund processing failed.' });
   }
 
   return respond(200, { received: true });
-}
+};
 
 /* ══════════════════════════════════════════════════════════════
    SHARED STATUS-HANDLING LOGIC
@@ -154,7 +156,7 @@ export async function onRequest(context) {
    for correctness, since all the safety guarantees live inside this
    function itself.
 ══════════════════════════════════════════════════════════════ */
-async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extraId, rawStatus, txHash, errorDetail }) {
+async function processPayoutStatusUpdate(db, { withdrawalId, batchId, extraId, rawStatus, txHash, errorDetail }) {
   if (!rawStatus) return { resolved: false, action: 'no_status' };
 
   /*
@@ -354,7 +356,7 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
 
     /* ── Notify the user — fire-and-forget, never blocks the caller ── */
     if (refundUid && refundAmount > 0) {
-      notifyRefund({ db, env, uid: refundUid, amount: refundAmount, payoutId: payoutRef.id })
+      notifyRefund({ db, uid: refundUid, amount: refundAmount, payoutId: payoutRef.id })
         .catch(err => console.warn('[payout-webhook] Refund notification failed:', err.message));
     }
 
@@ -370,7 +372,7 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
    NOWPayments signs callbacks with HMAC-SHA512 of the body after
    sorting top-level keys alphabetically.
 ══════════════════════════════════════════════════════════════ */
-async function verifySignature(rawBody, secret, receivedSig) {
+function verifySignature(rawBody, secret, receivedSig) {
   let parsed;
   try {
     parsed = JSON.parse(rawBody);
@@ -379,30 +381,20 @@ async function verifySignature(rawBody, secret, receivedSig) {
   }
 
   const sortedJson = JSON.stringify(sortObjectKeys(parsed));
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', keyMaterial, new TextEncoder().encode(sortedJson));
-  const expectedSig = Array.from(new Uint8Array(sigBuffer)).map(b => b.toString(16).padStart(2, '0')).join('').toLowerCase();
+  const expectedSig = crypto
+    .createHmac('sha512', secret)
+    .update(sortedJson)
+    .digest('hex')
+    .toLowerCase();
 
   try {
-    return (
-      typeof receivedSig === 'string' &&
-      expectedSig.length === receivedSig.length &&
-      timingSafeEqualStr(expectedSig, receivedSig)
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSig, 'utf8'),
+      Buffer.from(receivedSig, 'utf8'),
     );
   } catch {
     return false;
   }
-}
-
-// Web Crypto has no direct Node crypto.timingSafeEqual equivalent, so we use a
-// constant-time XOR comparison over character codes instead of Buffer.
-function timingSafeEqualStr(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 function sortObjectKeys(obj) {
@@ -423,8 +415,8 @@ function sortObjectKeys(obj) {
    the amount was restored to their balance. Non-fatal: errors here
    never affect the refund itself, which has already been committed.
 ══════════════════════════════════════════════════════════════ */
-async function notifyRefund({ db, env, uid, amount, payoutId }) {
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+async function notifyRefund({ db, uid, amount, payoutId }) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) return;
 
   let userData = {};
@@ -444,7 +436,7 @@ async function notifyRefund({ db, env, uid, amount, payoutId }) {
     method:  'POST',
     headers: {
       'Content-Type':      'application/json',
-      'x-internal-secret':  (env && env.INTERNAL_FUNCTION_SECRET) || '',
+      'x-internal-secret':  process.env.INTERNAL_FUNCTION_SECRET || '',
     },
     body: JSON.stringify({
       userUid:    uid,
@@ -463,12 +455,14 @@ async function notifyRefund({ db, env, uid, amount, payoutId }) {
   });
 }
 
-/* ── Utility: build a Workers Response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json' },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
-export { getDb, processPayoutStatusUpdate };
+module.exports.getDb = getDb;
+module.exports.processPayoutStatusUpdate = processPayoutStatusUpdate;

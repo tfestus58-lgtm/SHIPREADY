@@ -45,23 +45,21 @@
  *   PLATFORM_URL              — live domain e.g. https://kreddlo.space
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                  = require('firebase-admin/firestore');
 
 // ── Firebase Admin init (idempotent) ─────────────────────────────────────────
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
-    const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
     initializeApp({ credential: cert(serviceAccount) });
   }
   return getFirestore();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-// NOTE: PLATFORM_URL is no longer a module-level constant — Workers modules
-// load before any request exists, so `env` isn't available at this scope.
-// It is now computed inside fetch(request, env, ctx) as `platformUrl` and
-// threaded explicitly into every function below that needs it.
+const PLATFORM_URL    = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+const FALLBACK_IMAGE  = `${PLATFORM_URL}/assets/kreddlo-og-banner.png`;
 const SITE_NAME       = 'Kreddlo';
 
 /** Escape HTML special characters for safe meta content attribute injection */
@@ -74,13 +72,12 @@ function esc(str) {
 }
 
 /** Build and return the final OG HTML response */
-function buildResponse(meta, platformUrl) {
-  const fallbackImage = `${platformUrl}/assets/kreddlo-og-banner.png`;
+function buildResponse(meta) {
   const {
     title       = SITE_NAME,
     description = 'Global freelance marketplace — get paid anywhere.',
-    image       = fallbackImage,
-    url         = platformUrl,
+    image       = FALLBACK_IMAGE,
+    url         = PLATFORM_URL,
     type        = 'website',
   } = meta;
 
@@ -123,19 +120,20 @@ function buildResponse(meta, platformUrl) {
 </body>
 </html>`;
 
-  return new Response(html, {
-    status: 200,
+  return {
+    statusCode: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       // Let CDN/crawlers cache this for 5 minutes; revalidate after
       'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
     },
-  });
+    body: html,
+  };
 }
 
 /** Fallback response — still returns valid OG tags pointing at the site default */
-function fallbackResponse(redirectUrl, platformUrl) {
-  return buildResponse({ url: redirectUrl || platformUrl }, platformUrl);
+function fallbackResponse(redirectUrl) {
+  return buildResponse({ url: redirectUrl || PLATFORM_URL });
 }
 
 // ── Firestore data fetchers ───────────────────────────────────────────────────
@@ -144,8 +142,8 @@ function fallbackResponse(redirectUrl, platformUrl) {
  * Product — looks up by slug field in the products collection.
  * Returns meta for the product page (/p.html?slug=<slug>).
  */
-async function fetchProductMeta(db, slug, platformUrl) {
-  const realUrl = `${platformUrl}/p.html?slug=${encodeURIComponent(slug)}`;
+async function fetchProductMeta(db, slug) {
+  const realUrl = `${PLATFORM_URL}/p.html?slug=${encodeURIComponent(slug)}`;
   try {
     const snap = await db
       .collection('products')
@@ -153,7 +151,7 @@ async function fetchProductMeta(db, slug, platformUrl) {
       .limit(1)
       .get();
 
-    if (snap.empty) return fallbackResponse(realUrl, platformUrl);
+    if (snap.empty) return fallbackResponse(realUrl);
 
     const p     = snap.docs[0].data();
     const uid   = p.uid || p.sellerUid || '';
@@ -177,13 +175,13 @@ async function fetchProductMeta(db, slug, platformUrl) {
     return buildResponse({
       title,
       description : (p.description || `Buy "${p.title}" on ${SITE_NAME} — the global freelance marketplace.`).slice(0, 200),
-      image       : p.coverUrl || `${platformUrl}/assets/kreddlo-og-banner.png`,
+      image       : p.coverUrl || FALLBACK_IMAGE,
       url         : realUrl,
       type        : 'product',
-    }, platformUrl);
+    });
   } catch (err) {
     console.error('[og-meta] fetchProductMeta error:', err.message);
-    return fallbackResponse(realUrl, platformUrl);
+    return fallbackResponse(realUrl);
   }
 }
 
@@ -191,8 +189,8 @@ async function fetchProductMeta(db, slug, platformUrl) {
  * Store — looks up publicProfiles by storeSlug field.
  * Returns meta for the store page (/store.html?storeSlug=<slug>).
  */
-async function fetchStoreMeta(db, slug, platformUrl) {
-  const realUrl = `${platformUrl}/store.html?storeSlug=${encodeURIComponent(slug)}`;
+async function fetchStoreMeta(db, slug) {
+  const realUrl = `${PLATFORM_URL}/store.html?storeSlug=${encodeURIComponent(slug)}`;
   try {
     // Try storeSettings.storeSlug first (newer format), then storeSlug (flat)
     let snap = await db
@@ -209,12 +207,12 @@ async function fetchStoreMeta(db, slug, platformUrl) {
         .get();
     }
 
-    if (snap.empty) return fallbackResponse(realUrl, platformUrl);
+    if (snap.empty) return fallbackResponse(realUrl);
 
     const d           = snap.docs[0].data();
     const displayName = d.displayName || d.name || 'Freelancer';
     const bio         = d.bio || d.description || `Browse ${displayName}'s services on ${SITE_NAME}.`;
-    const photo       = d.photoURL || d.photoUrl || d.profilePhoto || `${platformUrl}/assets/kreddlo-og-banner.png`;
+    const photo       = d.photoURL || d.photoUrl || d.profilePhoto || FALLBACK_IMAGE;
 
     return buildResponse({
       title       : `${displayName} — ${SITE_NAME} Store`,
@@ -222,10 +220,10 @@ async function fetchStoreMeta(db, slug, platformUrl) {
       image       : photo,
       url         : realUrl,
       type        : 'profile',
-    }, platformUrl);
+    });
   } catch (err) {
     console.error('[og-meta] fetchStoreMeta error:', err.message);
-    return fallbackResponse(realUrl, platformUrl);
+    return fallbackResponse(realUrl);
   }
 }
 
@@ -233,17 +231,17 @@ async function fetchStoreMeta(db, slug, platformUrl) {
  * Profile — looks up publicProfiles by uid directly.
  * Returns meta for the profile page (/profile.html?uid=<uid>).
  */
-async function fetchProfileMeta(db, uid, platformUrl) {
-  const realUrl = `${platformUrl}/profile.html?uid=${encodeURIComponent(uid)}`;
+async function fetchProfileMeta(db, uid) {
+  const realUrl = `${PLATFORM_URL}/profile.html?uid=${encodeURIComponent(uid)}`;
   try {
     const snap = await db.collection('publicProfiles').doc(uid).get();
 
-    if (!snap.exists) return fallbackResponse(realUrl, platformUrl);
+    if (!snap.exists) return fallbackResponse(realUrl);
 
     const d           = snap.data();
     const displayName = d.displayName || d.name || 'Freelancer';
     const bio         = d.bio || d.description || d.title || `Hire ${displayName} on ${SITE_NAME}.`;
-    const photo       = d.photoURL || d.photoUrl || d.profilePhoto || `${platformUrl}/assets/kreddlo-og-banner.png`;
+    const photo       = d.photoURL || d.photoUrl || d.profilePhoto || FALLBACK_IMAGE;
 
     return buildResponse({
       title       : `${displayName} | ${SITE_NAME}`,
@@ -251,39 +249,37 @@ async function fetchProfileMeta(db, uid, platformUrl) {
       image       : photo,
       url         : realUrl,
       type        : 'profile',
-    }, platformUrl);
+    });
   } catch (err) {
     console.error('[og-meta] fetchProfileMeta error:', err.message);
-    return fallbackResponse(realUrl, platformUrl);
+    return fallbackResponse(realUrl);
   }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
-    const url    = new URL(request.url);
-    const type   = (url.searchParams.get('type')  || '').toLowerCase();
-    const slug   = (url.searchParams.get('slug')  || '').trim();
-    const uid    = (url.searchParams.get('uid')   || '').trim();
+exports.handler = async (event) => {
+  const params = event.queryStringParameters || {};
+  const type   = (params.type  || '').toLowerCase();
+  const slug   = (params.slug  || '').trim();
+  const uid    = (params.uid   || '').trim();
 
-    // Must have a type
-    if (!type) {
-      return fallbackResponse(platformUrl, platformUrl);
-    }
-
-    let db;
-    try {
-      db = getDb(env);
-    } catch (err) {
-      console.error('[og-meta] Firebase init error:', err.message);
-      return fallbackResponse(platformUrl, platformUrl);
-    }
-
-    if (type === 'product' && slug) return fetchProductMeta(db, slug, platformUrl);
-    if (type === 'store'   && slug) return fetchStoreMeta(db, slug, platformUrl);
-    if (type === 'profile' && uid)  return fetchProfileMeta(db, uid, platformUrl);
-
-    // Unknown type or missing param — return site-level fallback
-    return fallbackResponse(platformUrl, platformUrl);
+  // Must have a type
+  if (!type) {
+    return fallbackResponse(PLATFORM_URL);
   }
+
+  let db;
+  try {
+    db = getDb();
+  } catch (err) {
+    console.error('[og-meta] Firebase init error:', err.message);
+    return fallbackResponse(PLATFORM_URL);
+  }
+
+  if (type === 'product' && slug) return fetchProductMeta(db, slug);
+  if (type === 'store'   && slug) return fetchStoreMeta(db, slug);
+  if (type === 'profile' && uid)  return fetchProfileMeta(db, uid);
+
+  // Unknown type or missing param — return site-level fallback
+  return fallbackResponse(PLATFORM_URL);
+};

@@ -24,16 +24,17 @@
  *   FIREBASE_SERVICE_ACCOUNT
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+const https  = require('https');
+const crypto = require('crypto');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getAuth }                       = require('firebase-admin/auth');
 
 let _auth = null;
-function getFirebaseAuth(env) {
+function getFirebaseAuth() {
   if (_auth) return _auth;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -48,10 +49,10 @@ function getFirebaseAuth(env) {
  * Deletes a single Cloudinary asset using the Admin API (destroy endpoint).
  * Returns the Cloudinary result string e.g. "ok" or "not found".
  */
-async function destroyCloudinaryAsset(env, publicId, resourceType) {
-  const cloudName = env && env.CLOUDINARY_CLOUD_NAME;
-  const apiKey    = env && env.CLOUDINARY_API_KEY;
-  const apiSecret = env && env.CLOUDINARY_API_SECRET;
+async function destroyCloudinaryAsset(publicId, resourceType) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey    = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
   if (!cloudName || !apiKey || !apiSecret) {
     throw new Error('Cloudinary env vars not configured.');
@@ -59,8 +60,7 @@ async function destroyCloudinaryAsset(env, publicId, resourceType) {
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const sigStr    = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-  const sigHashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sigStr));
-  const signature = Array.from(new Uint8Array(sigHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const signature = crypto.createHash('sha256').update(sigStr).digest('hex');
 
   const body = [
     `public_id=${encodeURIComponent(publicId)}`,
@@ -69,46 +69,54 @@ async function destroyCloudinaryAsset(env, publicId, resourceType) {
     `signature=${encodeURIComponent(signature)}`,
   ].join('&');
 
-  const bodyBuf = new TextEncoder().encode(body);
+  const bodyBuf = Buffer.from(body, 'utf8');
   const type    = resourceType || 'image';
 
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${type}/destroy`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: bodyBuf,
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.cloudinary.com',
+      path:     `/v1_1/${cloudName}/${type}/destroy`,
+      method:   'POST',
+      headers:  {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': bodyBuf.length,
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.result || 'unknown');
+        } catch {
+          resolve('parse-error');
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
   });
-  const data = await res.text();
-  try {
-    const parsed = JSON.parse(data);
-    return parsed.result || 'unknown';
-  } catch {
-    return 'parse-error';
-  }
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+exports.handler = async function (event) {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+    };
   }
 
-  const rawText = await request.text();
-
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   // ── Verify Firebase Auth token ──
-  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
   const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
   if (!idToken) {
@@ -117,7 +125,7 @@ export async function onRequest(context) {
 
   let callerUid;
   try {
-    const decoded = await getFirebaseAuth(env).verifyIdToken(idToken);
+    const decoded = await getFirebaseAuth().verifyIdToken(idToken);
     callerUid = decoded.uid;
   } catch {
     return respond(401, { error: 'Invalid or expired authorization token.' });
@@ -125,7 +133,7 @@ export async function onRequest(context) {
 
   // ── Parse body ──
   let payload;
-  try { payload = JSON.parse(rawText || '{}'); }
+  try { payload = JSON.parse(event.body || '{}'); }
   catch { return respond(400, { error: 'Invalid JSON in request body.' }); }
 
   const { assets } = payload;
@@ -158,7 +166,7 @@ export async function onRequest(context) {
   const results = [];
   for (const asset of assets) {
     try {
-      const result = await destroyCloudinaryAsset(env, asset.publicId, asset.resourceType || 'image');
+      const result = await destroyCloudinaryAsset(asset.publicId, asset.resourceType || 'image');
       results.push({ publicId: asset.publicId, result });
     } catch (err) {
       console.warn('[cloudinary-delete] Failed to delete', asset.publicId, ':', err.message);
@@ -169,14 +177,15 @@ export async function onRequest(context) {
   console.log('[cloudinary-delete] Deleted assets for uid:', callerUid, results);
 
   return respond(200, { deleted: results });
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

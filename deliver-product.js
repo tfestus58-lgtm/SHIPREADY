@@ -14,20 +14,20 @@
  *   PLATFORM_URL             — live domain, e.g. https://kreddlo.space
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
-import { getSettings }                  from './get-settings';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
+const { getSettings }                  = require('./get-settings');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -41,8 +41,8 @@ function getDb(env) {
 }
 
 /* ── Internal function-to-function HTTP caller ── */
-async function callFunction(functionName, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return null;
@@ -53,7 +53,7 @@ async function callFunction(functionName, payload, env) {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -73,11 +73,9 @@ async function callFunction(functionName, payload, env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -97,13 +95,13 @@ export async function onRequest(context) {
      A request satisfying neither is rejected — previously, a request
      with NO Authorization header at all skipped identity verification
      entirely and could still reach the crediting logic below. ── */
-  const incomingSecret  = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedSecret  = env.INTERNAL_FUNCTION_SECRET || '';
+  const incomingSecret  = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret  = process.env.INTERNAL_FUNCTION_SECRET || '';
   const isTrustedInternal = !!expectedSecret && incomingSecret === expectedSecret;
 
   let verifiedCallerUid = null;
   if (!isTrustedInternal) {
-    verifiedCallerUid = await verifyCaller(request, env);
+    verifiedCallerUid = await verifyCaller(event, process.env);
     if (!verifiedCallerUid) {
       return respond(401, { error: 'Unauthorized. Please log in again.' });
     }
@@ -111,7 +109,7 @@ export async function onRequest(context) {
 
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -122,10 +120,10 @@ export async function onRequest(context) {
     return respond(400, { error: 'orderId is required.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── Fetch order ── */
     const orderRef  = db.collection('product-orders').doc(orderId);
@@ -175,7 +173,7 @@ export async function onRequest(context) {
           deliveryContent: product.deliveryContent,
           sellerName,
         },
-      }, env);
+      });
 
     } else if (product.deliveryType === 'manual-link') {
       /* Notify seller to deliver manually */
@@ -199,7 +197,7 @@ export async function onRequest(context) {
           // "You made a sale!" notification further down which uses amountFormatted.
           amount:       order.sellerAmount,
         },
-      }, env);
+      });
 
       /* Create a seller task so it appears in their dashboard task list */
       await db.collection('seller-tasks').add({
@@ -351,7 +349,7 @@ export async function onRequest(context) {
       url:        `${platformUrl}/buyer-purchases.html`,
       templateId: 'product-delivery',
       emailMode:  'never',
-    }, env);
+    });
 
     /* ── Schedule review-request email (48 hours = 2880 minutes) ── */
     await callFunction('send-smart-notification', {
@@ -369,7 +367,7 @@ export async function onRequest(context) {
         reviewUrl:    `${platformUrl}/review.html?orderId=${encodeURIComponent(orderId)}`,
         sellerName,
       },
-    }, env);
+    });
 
     /* ── Send seller a product-sale notification ── */
     await callFunction('send-smart-notification', {
@@ -394,7 +392,7 @@ export async function onRequest(context) {
         // 'always' the figure shown will be correct.
         amount:       amountFormatted,
       },
-    }, env);
+    });
 
     console.log(`[deliver-product] Delivered — orderId: ${orderId}, type: ${product.deliveryType}`);
 
@@ -404,11 +402,12 @@ export async function onRequest(context) {
     console.error('[deliver-product] Error:', err);
     return respond(500, { error: err.message || 'Internal server error.' });
   }
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

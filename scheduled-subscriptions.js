@@ -20,18 +20,18 @@
  *   PLATFORM_URL             — live domain e.g. https://kreddlo.space
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -45,8 +45,8 @@ function getDb(env) {
 }
 
 /* ── Internal function caller ── */
-async function callFunction(env, functionName, payload) {
-  const platformUrl = ((env && env.PLATFORM_URL) || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return;
@@ -57,7 +57,7 @@ async function callFunction(env, functionName, payload) {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': (env && env.INTERNAL_FUNCTION_SECRET) || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -76,27 +76,34 @@ async function callFunction(env, functionName, payload) {
    The handler signature accepts (event, context) but we only
    need event for the trigger check.
 ══════════════════════════════════════════════════════════════ */
-// NOTE: Cloudflare Pages Functions have no Cron Trigger mechanism, so
-// this scheduled() handler is preserved here as a plain export but is
-// NOT currently invoked by anything on Pages. See migration notes.
-export async function scheduled(event, env, ctx) {
+exports.handler = async (event) => {
 
-  /* ── Trigger source ──
-     Cloudflare Workers' scheduled() handler can only ever be invoked by
-     Cloudflare's own Cron Trigger system — there is no public URL that
-     reaches it, unlike Netlify's event.headers-based check this replaces.
-     The fetch() handler below is the only HTTP-reachable entry point for
-     this file, and it never runs this business logic. No auth check is
-     needed here as a result. */
+  /* ── Verify trigger source (FIX) ──
+     The header comment above referenced "the trigger check" but no such
+     check was actually implemented — this function was reachable by
+     anyone at its public URL with no auth at all. It only acts on users
+     whose plan has already expired (no attacker-controlled targeting),
+     but was still an open door for unauthenticated cost/resource abuse.
+     Netlify's own scheduler sends 'X-NF-Event: schedule' on real cron
+     invocations; we also accept a valid x-internal-secret for manual/
+     internal triggering, matching the rest of this codebase. */
+  const nfEvent        = event.headers['x-nf-event'] || event.headers['X-NF-Event'] || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
+  const isRealSchedule = nfEvent === 'schedule';
+  const isTrustedCall  = !!expectedSecret && incomingSecret === expectedSecret;
+  if (!isRealSchedule && !isTrustedCall) {
+    return respond(401, { error: 'Unauthorized.' });
+  }
 
   console.log('scheduled-subscriptions: running at', new Date().toISOString());
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
-    return;
+    return respond(500, { error: 'Database not available.' });
   }
 
   const now = new Date();
@@ -110,12 +117,12 @@ export async function scheduled(event, env, ctx) {
       .get();
   } catch (err) {
     console.error('Firestore query failed:', err.message);
-    return;
+    return respond(500, { error: 'Database query failed.' });
   }
 
   if (snapshot.empty) {
     console.log('scheduled-subscriptions: no expired subscriptions found.');
-    return;
+    return respond(200, { processed: 0 });
   }
 
   console.log(`scheduled-subscriptions: found ${snapshot.size} expired subscription(s).`);
@@ -138,16 +145,16 @@ export async function scheduled(event, env, ctx) {
       console.log(`uid ${uid} — premiumStatus set to inactive.`);
 
       /* 2. Push notification */
-      await callFunction(env, 'send-push-notification', {
+      await callFunction('send-push-notification', {
         userUid: uid,
         title:   'Subscription Ended',
         body:    'Your Kreddlo Pro plan has ended. Renew anytime from your settings.',
-        url:     `${(env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '')}/dashboard-settings.html`,
+        url:     `${(process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '')}/dashboard-settings.html`,
       });
 
       /* 3. Email */
       if (user.email) {
-        await callFunction(env, 'send-email', {
+        await callFunction('send-email', {
           to:   user.email,
           type: 'premium-expired',
           data: { name: user.name || 'there' },
@@ -183,8 +190,8 @@ export async function scheduled(event, env, ctx) {
     // If this is a missing index error, Firebase will print a link in the logs to create it automatically.
     // See FIRESTORE_INDEXES.md at the project root for manual setup instructions.
     console.error('scheduled-subscriptions: delivery query failed (may need composite index on projects.status + projects.deliveredAt — check logs for a Firebase auto-create link):', err.message);
-    // Non-fatal — subscription results were already processed above
-    return;
+    // Non-fatal — return subscription results already collected above
+    return respond(200, results);
   }
 
   if (deliverySnapshot.empty) {
@@ -212,12 +219,12 @@ export async function scheduled(event, env, ctx) {
         // so deliveryResults.failed++ was never reached for logic failures
         // (e.g. approve-delivery returning 409 already-approved or 500) and
         // deliveryResults.processed++ fired even when the call failed.
-        const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+        const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
         const res = await fetch(`${platformUrl}/.netlify/functions/approve-delivery`, {
           method:  'POST',
           headers: {
             'Content-Type':      'application/json',
-            'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+            'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
           },
           body: JSON.stringify({ projectId, buyerUid }),
         });
@@ -239,10 +246,14 @@ export async function scheduled(event, env, ctx) {
     results.autoApproveFailed    = deliveryResults.failed;
   }
 
-  console.log('scheduled-subscriptions: final results —', JSON.stringify(results));
-  }
+  return respond(200, results);
+};
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response('Scheduled function — not callable via HTTP.', { status: 200 });
-  }
+/* ── Utility ── */
+function respond(statusCode, body) {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}

@@ -24,13 +24,13 @@
  *   FLW_SECRET_KEY           — required for flutterwave payments
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { getAuth }                      from 'firebase-admin/auth';
-import { getSettings }                  from './get-settings';
-import { verifyCaller }                 from './_verify-auth';
-import { checkRateLimit }               from './_rate-limit';
-import { sanitizeString, sanitizeEmail } from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { getAuth }                      = require('firebase-admin/auth');
+const { getSettings }                  = require('./get-settings');
+const { verifyCaller }                 = require('./_verify-auth');
+const { checkRateLimit }               = require('./_rate-limit');
+const { sanitizeString, sanitizeEmail } = require('./_sanitize');
 
 /* ── Payment API endpoints ── */
 const NOWPAYMENTS_INVOICE_ENDPOINT = 'https://api.nowpayments.io/v1/invoice';
@@ -53,12 +53,12 @@ const FX_RATE_USE_FLUTTERWAVE = new Set(['NGN', 'UGX', 'RWF', 'XOF', 'TZS']);
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -108,8 +108,8 @@ const RATE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
  * @param {string} currency  e.g. "NGN"
  * @returns {Promise<number|null>}  1 unit of currency in USD, or null on failure
  */
-async function getFlwUsdRate(currency, env) {
-  const flwKey = env.FLW_SECRET_KEY;
+async function getFlwUsdRate(currency) {
+  const flwKey = process.env.FLW_SECRET_KEY;
   if (!flwKey) return null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -145,7 +145,7 @@ async function getFlwUsdRate(currency, env) {
  * @param {string} currency  e.g. "NGN", "GBP"
  * @returns {Promise<number|null>}  rate to multiply by to get USD, or null on total failure
  */
-async function getUsdRate(db, currency, env) {
+async function getUsdRate(db, currency) {
   if (currency === 'USD') return 1;
 
   const cacheRef = db.collection('config').doc('exchangeRates');
@@ -166,7 +166,7 @@ async function getUsdRate(db, currency, env) {
 
   // ── 2a. Currencies Frankfurter/ECB doesn't price — use Flutterwave instead ──
   if (FX_RATE_USE_FLUTTERWAVE.has(currency)) {
-    const flwRate = await getFlwUsdRate(currency, env);
+    const flwRate = await getFlwUsdRate(currency);
     if (flwRate !== null) {
       // merge:true — never wipes out the Frankfurter-sourced rates cached
       // under the same document by the branch below.
@@ -234,11 +234,11 @@ async function getUsdRate(db, currency, env) {
 const STRIPE_UNSUPPORTED_CURRENCIES = new Set(['NGN', 'UGX', 'RWF', 'XOF', 'TZS']);
 
 /* ── Price cap check (uses cached rates) ── */
-async function checkPriceCap(amount, currency, maxProductPriceUsd, db, env) {
+async function checkPriceCap(amount, currency, maxProductPriceUsd, db) {
   if (currency === 'USD') {
     return amount <= maxProductPriceUsd;
   }
-  const rate = await getUsdRate(db, currency, env);
+  const rate = await getUsdRate(db, currency);
   if (rate === null) return true; // skip cap check if no rate available — don't block orders
   const usdEquivalent = amount * rate;
   return usdEquivalent <= maxProductPriceUsd;
@@ -248,8 +248,8 @@ async function checkPriceCap(amount, currency, maxProductPriceUsd, db, env) {
    PAYMENT CREATORS
 ══════════════════════════════════════════════════════════════ */
 
-async function createCryptoCheckout({ orderId, amount, productCurrency, description, buyerEmail, platformUrl, env }) {
-  const apiKey = env.NOWPAYMENTS_API_KEY;
+async function createCryptoCheckout({ orderId, amount, productCurrency, description, buyerEmail, platformUrl }) {
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey) throw new Error('NOWPAYMENTS_API_KEY is not set.');
 
   const payload = {
@@ -279,8 +279,8 @@ async function createCryptoCheckout({ orderId, amount, productCurrency, descript
   return { checkoutUrl: data.invoice_url, paymentRef: data.id };
 }
 
-async function createStripeCheckout({ orderId, amount, productCurrency, description, buyerEmail, productTitle, platformUrl, env }) {
-  const stripeKey = env.STRIPE_SECRET_KEY;
+async function createStripeCheckout({ orderId, amount, productCurrency, description, buyerEmail, productTitle, platformUrl }) {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) throw new Error('STRIPE_SECRET_KEY is not set.');
 
   const sessionParams = {
@@ -313,8 +313,8 @@ async function createStripeCheckout({ orderId, amount, productCurrency, descript
   return { checkoutUrl: data.url, paymentRef: data.id };
 }
 
-async function createFlutterwaveCheckout({ orderId, amount, productCurrency, description, buyerEmail, productTitle, platformUrl, env }) {
-  const flwKey = env.FLW_SECRET_KEY;
+async function createFlutterwaveCheckout({ orderId, amount, productCurrency, description, buyerEmail, productTitle, platformUrl }) {
+  const flwKey = process.env.FLW_SECRET_KEY;
   if (!flwKey) throw new Error('FLW_SECRET_KEY is not set.');
   if (!buyerEmail) throw new Error('buyerEmail is required for Flutterwave payments.');
 
@@ -354,11 +354,9 @@ async function createFlutterwaveCheckout({ orderId, amount, productCurrency, des
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -377,10 +375,10 @@ export async function onRequest(context) {
      behavior below, exactly as before. Guest checkout with no Authorization
      header at all is completely unaffected. ── */
   let verifiedCallerUid = null;
-  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+  const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
   if (authHeader.startsWith('Bearer ')) {
     try {
-      verifiedCallerUid = await verifyCaller(request, env);
+      verifiedCallerUid = await verifyCaller(event, process.env);
     } catch (err) {
       console.warn('[create-product-order] Caller token present but verification failed, proceeding as guest:', err.message);
     }
@@ -388,7 +386,7 @@ export async function onRequest(context) {
 
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -413,20 +411,20 @@ export async function onRequest(context) {
     return respond(400, { error: 'paymentMethod must be crypto, stripe, or flutterwave.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     return respond(500, { error: 'Platform URL is not configured.' });
   }
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── Server-side rate limit: 20 order attempts per 5 minutes per IP ──
        Keyed on IP rather than uid because product orders allow guest
        checkout — there may be no uid. Prevents automated purchase-flow
        probing or payment-gateway enumeration from a single source. */
     const clientIp = (
-      request.headers.get('x-forwarded-for') || request.headers.get('client-ip') || 'unknown'
+      event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'unknown'
     ).split(',')[0].trim();
     const rl = await checkRateLimit(db, `cpo::${clientIp}`, 20, 300);
     if (!rl.allowed) {
@@ -478,7 +476,7 @@ export async function onRequest(context) {
 
     /* ── Enforce price cap on backend ── */
     const settings = await getSettings(db);
-    const withinCap = await checkPriceCap(amount, productCurrency, settings.maxProductPriceUsd || 1800, db, env);
+    const withinCap = await checkPriceCap(amount, productCurrency, settings.maxProductPriceUsd || 1800, db);
     if (!withinCap) {
       return respond(400, { error: 'Product price exceeds the platform maximum.' });
     }
@@ -550,7 +548,7 @@ export async function onRequest(context) {
       reviewLeft:     false,
       affiliateRef:   sanitisedRef,   // null if no referral; webhook uses this to credit affiliate
       // Netlify stamps the buyer's country on every request — used for Top Locations analytics.
-      buyerCountry:   request.headers.get('x-country') || request.headers.get('cf-ipcountry') || '',
+      buyerCountry:   event.headers['x-country'] || event.headers['cf-ipcountry'] || '',
       createdAt:      FieldValue.serverTimestamp(),
     });
 
@@ -563,7 +561,7 @@ export async function onRequest(context) {
     let stripeAmount = chargeAmount;
     let stripeCurrency = productCurrency;
     if (paymentMethod === 'stripe' && STRIPE_UNSUPPORTED_CURRENCIES.has(productCurrency)) {
-      const rate = await getUsdRate(db, productCurrency, env);
+      const rate = await getUsdRate(db, productCurrency);
       if (!rate) {
         return respond(500, { error: 'Could not fetch exchange rate for currency conversion. Please try again.' });
       }
@@ -671,7 +669,7 @@ export async function onRequest(context) {
         // rate = units of localCurrency per 1 USD (e.g. 1600 for NGN).
         // Retries once on failure — a single dropped request shouldn't fail
         // the buyer's checkout when the rate is genuinely available.
-        const flwKey    = env.FLW_SECRET_KEY;
+        const flwKey    = process.env.FLW_SECRET_KEY;
         let   localRate = null;
 
         if (flwKey) {
@@ -733,7 +731,6 @@ export async function onRequest(context) {
       productTitle: product.title || 'Kreddlo Product',
       buyerEmail,   // already sanitized above
       platformUrl,
-      env,
     };
 
     let result;
@@ -827,11 +824,12 @@ export async function onRequest(context) {
     console.error('[create-product-order] Error:', err);
     return respond(500, { error: err.message || 'Internal server error.' });
   }
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

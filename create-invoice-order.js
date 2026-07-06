@@ -36,11 +36,11 @@
  *   FLW_SECRET_KEY           — required for flutterwave payments
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
-import { checkRateLimit } from './_rate-limit';
-import { sanitizeString, sanitizeEmail } from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { getSettings }                  = require('./get-settings');
+const { checkRateLimit }               = require('./_rate-limit');
+const { sanitizeString, sanitizeEmail } = require('./_sanitize');
 
 /* ── Payment API endpoints ── */
 const NOWPAYMENTS_INVOICE_ENDPOINT = 'https://api.nowpayments.io/v1/invoice';
@@ -51,12 +51,12 @@ const FRANKFURTER_URL              = 'https://api.frankfurter.app/latest';
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -184,8 +184,8 @@ async function getUsdRate(db, currency) {
    redirect targets point back to invoice.html (no buyer login required)
 ══════════════════════════════════════════════════════════════ */
 
-async function createCryptoCheckout({ invoiceId, orderId, amount, currency, description, clientEmail, platformUrl, env }) {
-  const apiKey = env.NOWPAYMENTS_API_KEY;
+async function createCryptoCheckout({ invoiceId, orderId, amount, currency, description, clientEmail, platformUrl }) {
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey) throw new Error('NOWPAYMENTS_API_KEY is not set.');
 
   // BUG 1 FIX: order_id must be the invoice-orders Firestore document ID (orderId),
@@ -221,8 +221,8 @@ async function createCryptoCheckout({ invoiceId, orderId, amount, currency, desc
   return { checkoutUrl: data.invoice_url, paymentRef: data.id };
 }
 
-async function createStripeCheckout({ invoiceId, orderId, amount, currency, description, clientEmail, invoiceTitle, platformUrl, env }) {
-  const stripeKey = env.STRIPE_SECRET_KEY;
+async function createStripeCheckout({ invoiceId, orderId, amount, currency, description, clientEmail, invoiceTitle, platformUrl }) {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) throw new Error('STRIPE_SECRET_KEY is not set.');
 
   const sessionParams = {
@@ -257,8 +257,8 @@ async function createStripeCheckout({ invoiceId, orderId, amount, currency, desc
   return { checkoutUrl: data.url, paymentRef: data.id };
 }
 
-async function createFlutterwaveCheckout({ invoiceId, amount, currency, description, clientEmail, invoiceTitle, platformUrl, env }) {
-  const flwKey = env.FLW_SECRET_KEY;
+async function createFlutterwaveCheckout({ invoiceId, amount, currency, description, clientEmail, invoiceTitle, platformUrl }) {
+  const flwKey = process.env.FLW_SECRET_KEY;
   if (!flwKey) throw new Error('FLW_SECRET_KEY is not set.');
   if (!clientEmail) throw new Error('clientEmail is required for Flutterwave payments.');
 
@@ -298,18 +298,15 @@ async function createFlutterwaveCheckout({ invoiceId, amount, currency, descript
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
-  const rawText = await request.text();
-
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -327,20 +324,20 @@ export async function onRequest(context) {
     return respond(400, { error: 'paymentMethod must be crypto, stripe, or flutterwave.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     return respond(500, { error: 'Platform URL is not configured.' });
   }
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── Server-side rate limit: 20 invoice order attempts per 5 min per IP ──
        Invoice payment is unauthenticated (public pay-link) so IP is the
        only available key. Prevents payment-gateway probing and brute-force
        invoice-ID enumeration from a single source. */
     const clientIp = (
-      request.headers.get('x-forwarded-for') || request.headers.get('client-ip') || 'unknown'
+      event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'unknown'
     ).split(',')[0].trim();
     const rl = await checkRateLimit(db, `cio::${clientIp}`, 20, 300);
     if (!rl.allowed) {
@@ -558,7 +555,7 @@ export async function onRequest(context) {
 
       if (localCurrency && FLW_COLLECTION_CURRENCIES.has(localCurrency)) {
         const FLW_BASE  = 'https://api.flutterwave.com/v3';
-        const flwKey    = env.FLW_SECRET_KEY;
+        const flwKey    = process.env.FLW_SECRET_KEY;
         let   localRate = null;
 
         if (flwKey) {
@@ -615,7 +612,6 @@ export async function onRequest(context) {
       invoiceTitle: `Invoice ${invoice.invoiceNumber || ''}`.trim(),
       clientEmail:  (invoice.clientEmail || '').trim().toLowerCase(),
       platformUrl,
-      env,
     };
 
     let result;
@@ -643,11 +639,12 @@ export async function onRequest(context) {
     console.error('[create-invoice-order] Error:', err);
     return respond(500, { error: err.message || 'Internal server error.' });
   }
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

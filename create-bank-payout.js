@@ -30,10 +30,9 @@
  *   PLATFORM_URL              — e.g. https://kreddlo.space
  */
 
-import { getSettings } from './get-settings';
-import { verifyCaller } from './_verify-auth';
-import { sanitizeString } from './_sanitize';
-import admin from 'firebase-admin';
+const { getSettings }  = require('./get-settings');
+const { verifyCaller } = require('./_verify-auth');
+const { sanitizeString } = require('./_sanitize');
 
 /* ─────────────────────────────────────────────
    FIREBASE ADMIN (loaded lazily so cold starts
@@ -41,11 +40,13 @@ import admin from 'firebase-admin';
 ───────────────────────────────────────────── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
+  const admin = require('firebase-admin');
+
   if (!admin.apps.length) {
-    const serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
@@ -329,7 +330,7 @@ async function initiateStripeTransfer(stripeKey, {
   }
 
   const STRIPE_API = 'https://api.stripe.com/v1';
-  const authHeader = 'Basic ' + btoa(stripeKey + ':');
+  const authHeader = 'Basic ' + Buffer.from(stripeKey + ':').toString('base64');
 
   /* ── Step 1: Create bank account token ── */
   const tokenParams = new URLSearchParams();
@@ -417,39 +418,37 @@ async function initiateStripeTransfer(stripeKey, {
 /* ─────────────────────────────────────────────
    MAIN HANDLER
 ───────────────────────────────────────────── */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function (event) {
   /* ── CORS preflight ── */
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+      body: '',
+    };
   }
 
   /* ── Only allow POST ── */
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405 });
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed.' }) };
   }
 
-  const rawText = await request.text();
-
   /* ── Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized. Please log in again.' }), { status: 401 });
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized. Please log in again.' }) };
   }
 
   /* ── Parse body ── */
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body.' }) };
   }
 
   const {
@@ -508,23 +507,23 @@ export async function onRequest(context) {
 
   /* ── Basic input validation ── */
   if (!uid || typeof uid !== 'string') {
-    return new Response(JSON.stringify({ error: 'Missing user ID.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing user ID.' }) };
   }
   if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-    return new Response(JSON.stringify({ error: 'Invalid withdrawal amount.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid withdrawal amount.' }) };
   }
   if (!safeAccountName) {
-    return new Response(JSON.stringify({ error: 'Account holder name is required.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Account holder name is required.' }) };
   }
   if (!safeAccountNumber && !iban) {
-    return new Response(JSON.stringify({ error: 'Bank account number or IBAN is required.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Bank account number or IBAN is required.' }) };
   }
   const isStripeCurrency = STRIPE_TRANSFER_CURRENCIES.includes(payoutCurrencyNormalized);
   if (!safeBankName) {
     // For Stripe IBAN currencies, bank name is resolved from token — not required from client
     const ibanCurrency = isStripeCurrency && STRIPE_CURRENCY_CONFIG[payoutCurrencyNormalized]?.type === 'iban';
     if (!ibanCurrency) {
-      return new Response(JSON.stringify({ error: 'Bank name is required.' }), { status: 400 });
+      return { statusCode: 400, body: JSON.stringify({ error: 'Bank name is required.' }) };
     }
   }
 
@@ -535,13 +534,13 @@ export async function onRequest(context) {
   let balanceAlreadyDeducted = false;
 
   try {
-    const db         = getDb(env);
+    const db         = getDb();
     const settings   = await getSettings(db);
-    const FieldValue = admin.firestore.FieldValue;
+    const FieldValue = require('firebase-admin').firestore.FieldValue;
 
     /* ── Fiat payouts must be enabled by an admin ── */
     if (!settings.flutterwaveEnabled && !settings.stripeEnabled) {
-      return new Response(JSON.stringify({ error: 'Bank withdrawals are not currently enabled.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'Bank withdrawals are not currently enabled.' }) };
     }
 
     /* ────────────────────────────────────────
@@ -552,21 +551,21 @@ export async function onRequest(context) {
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      return new Response(JSON.stringify({ error: 'User not found.' }), { status: 404 });
+      return { statusCode: 404, body: JSON.stringify({ error: 'User not found.' }) };
     }
 
     const userData = userSnap.data();
 
     if (userData.role !== 'freelancer') {
-      return new Response(JSON.stringify({ error: 'Only freelancers can withdraw funds.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'Only freelancers can withdraw funds.' }) };
     }
 
     if (userData.kycStatus !== 'verified') {
-      return new Response(JSON.stringify({ error: 'KYC verification required before withdrawing.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'KYC verification required before withdrawing.' }) };
     }
 
     if (userData.payoutsFrozen === true) {
-      return new Response(JSON.stringify({ error: 'Withdrawals are temporarily paused on your account. Please contact support.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'Withdrawals are temporarily paused on your account. Please contact support.' }) };
     }
 
     /* ────────────────────────────────────────
@@ -589,10 +588,10 @@ export async function onRequest(context) {
 
       const OTP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
       if (!userData.withdrawalOtpUsed || !otpVerifiedAt || (Date.now() - otpVerifiedAt.getTime()) > OTP_WINDOW_MS) {
-        return new Response(
-          JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }),
-          { status: 403 }
-        );
+        return {
+          statusCode: 403,
+          body: JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }),
+        };
       }
     }
 
@@ -626,12 +625,12 @@ export async function onRequest(context) {
     const debitAmountLocal = amountLocal;
 
     if (Number(preflightBalances[debitCurrency] || 0) < debitAmountLocal) {
-      return new Response(
-        JSON.stringify({
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
           error: `Insufficient ${debitCurrency} balance. Available: ${formatCurrency(Number(preflightBalances[debitCurrency] || 0), debitCurrency)}, Requested: ${formatCurrency(debitAmountLocal, debitCurrency)}.`,
         }),
-        { status: 400 }
-      );
+      };
     }
 
     /* ────────────────────────────────────────
@@ -663,10 +662,10 @@ export async function onRequest(context) {
       const clientPlatformFee = Number(fees?.platformFee || 0);
 
       if (clientPlatformFee < expectedPlatformFee * 0.95) {
-        return new Response(
-          JSON.stringify({ error: 'Invalid fee calculation. Please refresh and try again.' }),
-          { status: 400 }
-        );
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Invalid fee calculation. Please refresh and try again.' }),
+        };
       }
     }
 
@@ -687,10 +686,10 @@ export async function onRequest(context) {
     const platformFee = expectedPlatformFee;
     const netPayoutAmount = +(amountLocal - platformFee).toFixed(2);
     if (netPayoutAmount <= 0) {
-      return new Response(
-        JSON.stringify({ error: 'Withdrawal amount is too small to cover the platform fee.' }),
-        { status: 400 }
-      );
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Withdrawal amount is too small to cover the platform fee.' }),
+      };
     }
 
     const bankDetails = {
@@ -840,7 +839,7 @@ export async function onRequest(context) {
       // and no payout doc was created (Issue 1 fix: doc is only created after
       // the transaction commits in STEP 2b below). Nothing to roll back here.
       const sc = txErr.statusCode || 500;
-      return new Response(JSON.stringify({ error: txErr.message }), { status: sc });
+      return { statusCode: sc, body: JSON.stringify({ error: txErr.message }) };
     }
 
     /* ────────────────────────────────────────
@@ -904,10 +903,10 @@ export async function onRequest(context) {
       } catch (refundErr) {
         console.error('[create-bank-payout] CRITICAL: compensating refund also failed after doc creation error for uid ' + uid + ':', refundErr.message);
       }
-      return new Response(
-        JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }),
-        { status: 500 }
-      );
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }),
+      };
     }
 
     /* ────────────────────────────────────────
@@ -937,8 +936,8 @@ export async function onRequest(context) {
     // payoutCurrencyNormalized — the currency the BENEFICIARY BANK receives —
     // not the balance bucket being debited. These can differ (cross-currency).
     const isFlwCurrency    = FLW_TRANSFER_CURRENCIES.includes(payoutCurrencyNormalized);
-    const flwKey           = env.FLW_SECRET_KEY;
-    const stripeKey        = env.STRIPE_SECRET_KEY;
+    const flwKey           = process.env.FLW_SECRET_KEY;
+    const stripeKey        = process.env.STRIPE_SECRET_KEY;
 
     if (isFlwCurrency && settings.flutterwaveEnabled && flwKey) {
       /* ── Attempt automated Flutterwave transfer for supported currencies ── */
@@ -1193,14 +1192,14 @@ export async function onRequest(context) {
        STEP 5 — Send withdrawal confirmation notification
     ──────────────────────────────────────── */
     try {
-      const platformUrl     = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+      const platformUrl     = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
       const formattedAmount = formatCurrency(amountLocal, currency);
 
       await fetch(`${platformUrl}/.netlify/functions/send-smart-notification`, {
         method:  'POST',
         headers: {
           'Content-Type':     'application/json',
-          'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+          'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
         },
         body:    JSON.stringify({
           userUid:    uid,
@@ -1241,8 +1240,13 @@ export async function onRequest(context) {
     /* ────────────────────────────────────────
        STEP 6 — Return success response
     ──────────────────────────────────────── */
-    return new Response(
-      JSON.stringify({
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type':                'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+      body: JSON.stringify({
         success:            true,
         payoutId,
         status:             payoutStatus,
@@ -1255,14 +1259,7 @@ export async function onRequest(context) {
         netAmount:          netPayoutAmount,
         message:            resultMessage,
       }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type':                'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      }
-    );
+    };
 
   } catch (err) {
     console.error('[create-bank-payout] Unhandled error:', err);
@@ -1271,8 +1268,8 @@ export async function onRequest(context) {
     // unhandled error fired, refund it so the user is never permanently short.
     if (balanceAlreadyDeducted) {
       try {
-        const db         = getDb(env);
-        const FieldValue = admin.firestore.FieldValue;
+        const db         = getDb();
+        const FieldValue = require('firebase-admin').firestore.FieldValue;
         const debitCurrencyForRefund = (withdrawalCurrency || 'USD').toUpperCase().trim();
         const debitAmountForRefund   = Number(amount);
 
@@ -1306,9 +1303,10 @@ export async function onRequest(context) {
       }
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Internal server error. Please try again.' }),
-      { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } }
-    );
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Internal server error. Please try again.' }),
+    };
   }
-  }
+};

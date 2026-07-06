@@ -32,8 +32,8 @@
  *                                this function has already deducted the balance.
  */
 
-import { verifyCaller } from './_verify-auth';
-import admin from 'firebase-admin';
+const https = require('https');
+const { verifyCaller } = require('./_verify-auth');
 
 /* ─────────────────────────────────────────────
    FIREBASE ADMIN (loaded lazily so cold starts
@@ -41,11 +41,13 @@ import admin from 'firebase-admin';
 ───────────────────────────────────────────── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
+  const admin = require('firebase-admin');
+
   if (!admin.apps.length) {
-    const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
@@ -60,30 +62,56 @@ function getDb(env) {
 ───────────────────────────────────────────── */
 
 /** Simple HTTPS POST returning parsed JSON */
-async function httpsPost(hostname, path, data, headers) {
-  const body = JSON.stringify(data);
-  const res = await fetch(`https://${hostname}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body,
+function httpsPost(hostname, path, data, headers) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(data);
+    const options = {
+      hostname,
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => (raw += chunk));
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(raw) });
+        } catch (e) {
+          resolve({ status: res.statusCode, body: raw });
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
   });
-  const raw = await res.text();
-  try { return { status: res.status, body: JSON.parse(raw) }; }
-  catch (e) { return { status: res.status, body: raw }; }
 }
 
 /** Simple HTTPS GET returning parsed JSON */
-async function httpsGet(hostname, path, headers) {
-  const res = await fetch(`https://${hostname}${path}`, {
-    method: 'GET',
-    headers: headers || {},
+function httpsGet(hostname, path, headers) {
+  return new Promise((resolve, reject) => {
+    const options = { hostname, path, method: 'GET', headers: headers || {} };
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => (raw += chunk));
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(raw) });
+        } catch (e) {
+          resolve({ status: res.statusCode, body: raw });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
   });
-  const raw = await res.text();
-  try { return { status: res.status, body: JSON.parse(raw) }; }
-  catch (e) { return { status: res.status, body: raw }; }
 }
 
 /*
@@ -151,8 +179,8 @@ function normalizeNowCurrency(coinId, currency) {
  * fix) is still the safety net for an actual failed payout — and fail
  * CLOSED only on a confirmed, explicit insufficient-balance reading.
  */
-async function fetchPayoutWalletBalance(env, nowCurrency) {
-  const apiKey = env.NOWPAYMENTS_API_KEY;
+async function fetchPayoutWalletBalance(nowCurrency) {
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey) return null;
 
   try {
@@ -202,9 +230,8 @@ async function initiateNowPaymentsPayout({
   amountCoin,   // exact coin amount to send (after all fees)
   uid,          // used as unique_external_id
   payoutDocId,  // Firestore doc ID — used as extra_id for reconciliation
-  env,
 }) {
-  const apiKey = env.NOWPAYMENTS_API_KEY;
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey) throw new Error('NOWPAYMENTS_API_KEY is not set.');
 
   /*
@@ -224,7 +251,7 @@ async function initiateNowPaymentsPayout({
    * extra_id (payoutDocId) is echoed back in that callback so
    * nowpayments-payout-webhook.js can find the matching Firestore doc.
    */
-  const platformUrl    = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl    = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const ipnCallbackUrl = platformUrl
     ? `${platformUrl}/.netlify/functions/nowpayments-payout-webhook`
     : undefined;
@@ -274,39 +301,37 @@ async function initiateNowPaymentsPayout({
 /* ─────────────────────────────────────────────
    MAIN HANDLER
 ───────────────────────────────────────────── */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function (event) {
   /* ── CORS preflight ── */
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+      body: '',
+    };
   }
 
-  const rawText = await request.text();
-
   /* ── Only allow POST ── */
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405 });
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed.' }) };
   }
 
   /* ── Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized. Please log in again.' }), { status: 401 });
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized. Please log in again.' }) };
   }
 
   /* ── Parse body ── */
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body.' }) };
   }
 
   const {
@@ -328,26 +353,26 @@ export async function onRequest(context) {
 
   /* ── Basic input validation ── */
   if (!uid || typeof uid !== 'string') {
-    return new Response(JSON.stringify({ error: 'Missing user ID.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing user ID.' }) };
   }
   if (!amount || isNaN(Number(amount)) || Number(amount) < 10) {
-    return new Response(JSON.stringify({ error: 'Minimum withdrawal amount is $10.00.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Minimum withdrawal amount is $10.00.' }) };
   }
   if (!walletAddress || walletAddress.trim().length < 10) {
-    return new Response(JSON.stringify({ error: 'Invalid wallet address.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid wallet address.' }) };
   }
   if (!currency || !coinId) {
-    return new Response(JSON.stringify({ error: 'Missing coin selection.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing coin selection.' }) };
   }
   if (!amountCoin || Number(amountCoin) <= 0) {
-    return new Response(JSON.stringify({ error: 'Coin amount must be greater than zero.' }), { status: 400 });
+    return { statusCode: 400, body: JSON.stringify({ error: 'Coin amount must be greater than zero.' }) };
   }
 
   const amtUsd  = Number(amount);
   let   coinAmt = Number(amountCoin); // may be clamped down by server-side rate validation below
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ────────────────────────────────────────
        STEP 1 — Pre-flight: verify user exists, role, KYC
@@ -357,24 +382,27 @@ export async function onRequest(context) {
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      return new Response(JSON.stringify({ error: 'User not found.' }), { status: 404 });
+      return { statusCode: 404, body: JSON.stringify({ error: 'User not found.' }) };
     }
 
     const userData = userSnap.data();
 
     /* Role check */
     if (userData.role !== 'freelancer') {
-      return new Response(JSON.stringify({ error: 'Only freelancers can withdraw funds.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'Only freelancers can withdraw funds.' }) };
     }
 
     /* KYC check */
     if (userData.kycStatus !== 'verified') {
-      return new Response(JSON.stringify({ error: 'KYC verification required before withdrawing.' }), { status: 403 });
+      return { statusCode: 403, body: JSON.stringify({ error: 'KYC verification required before withdrawing.' }) };
     }
 
     /* Payout freeze check */
     if (userData.payoutsFrozen === true) {
-      return new Response(JSON.stringify({ error: 'Withdrawals temporarily paused by platform. Please contact support for assistance.' }), { status: 403 });
+      return {
+        statusCode: 403,
+        body: JSON.stringify({ error: 'Withdrawals temporarily paused by platform. Please contact support for assistance.' }),
+      };
     }
 
     /* ────────────────────────────────────────
@@ -397,7 +425,10 @@ export async function onRequest(context) {
 
       const OTP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
       if (!userData.withdrawalOtpUsed || !otpVerifiedAt || (Date.now() - otpVerifiedAt.getTime()) > OTP_WINDOW_MS) {
-        return new Response(JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }), { status: 403 });
+        return {
+          statusCode: 403,
+          body: JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }),
+        };
       }
     }
 
@@ -431,7 +462,10 @@ export async function onRequest(context) {
       const clientPlatformFee   = Number(fees?.platformFee || 0);
 
       if (clientPlatformFee < expectedPlatformFee * 0.95) {
-        return new Response(JSON.stringify({ error: 'Invalid fee calculation. Please refresh and try again.' }), { status: 400 });
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Invalid fee calculation. Please refresh and try again.' }),
+        };
       }
     }
 
@@ -463,7 +497,10 @@ export async function onRequest(context) {
         const TOLERANCE = 0.03;
 
         if (expectedCoinAmt <= 0 || coinAmt > expectedCoinAmt * (1 + TOLERANCE)) {
-          return new Response(JSON.stringify({ error: 'Invalid coin amount. Please refresh and try again.' }), { status: 400 });
+          return {
+            statusCode: 400,
+            body: JSON.stringify({ error: 'Invalid coin amount. Please refresh and try again.' }),
+          };
         }
 
         // Use the lower (safer) of the two values so a stale-but-valid
@@ -474,7 +511,10 @@ export async function onRequest(context) {
         // or coinId not in our map). Fail closed rather than trusting an
         // unverified client-supplied coin amount.
         console.error('[create-payout] Could not verify exchange rate server-side for coinId:', coinId);
-        return new Response(JSON.stringify({ error: 'Unable to verify current exchange rate. Please try again shortly.' }), { status: 502 });
+        return {
+          statusCode: 502,
+          body: JSON.stringify({ error: 'Unable to verify current exchange rate. Please try again shortly.' }),
+        };
       }
     }
 
@@ -492,16 +532,19 @@ export async function onRequest(context) {
     ──────────────────────────────────────── */
     {
       const nowCurrencyForCheck = normalizeNowCurrency(coinId, currency);
-      const walletBalance = await fetchPayoutWalletBalance(env, nowCurrencyForCheck);
+      const walletBalance = await fetchPayoutWalletBalance(nowCurrencyForCheck);
 
       if (walletBalance !== null && walletBalance < coinAmt) {
         console.error(
           `[create-payout] Insufficient payout wallet balance for "${nowCurrencyForCheck}". ` +
           `Have: ${walletBalance}, need: ${coinAmt}.`
         );
-        return new Response(JSON.stringify({
-          error: `Withdrawals in ${currency.toUpperCase()} are temporarily unavailable. Please try a different coin or contact support.`,
-        }), { status: 503 });
+        return {
+          statusCode: 503,
+          body: JSON.stringify({
+            error: `Withdrawals in ${currency.toUpperCase()} are temporarily unavailable. Please try a different coin or contact support.`,
+          }),
+        };
       }
     }
 
@@ -611,14 +654,14 @@ export async function onRequest(context) {
          * the fiat withdrawal pool and belongs to create-bank-payout.js.
          */
         tx.update(userRef, {
-          cryptoBalance:     admin.firestore.FieldValue.increment(-amtUsd),
-          'balances.USD':    admin.firestore.FieldValue.increment(-amtUsd),
-          totalWithdrawn:    admin.firestore.FieldValue.increment(amtUsd),
+          cryptoBalance:     require('firebase-admin').firestore.FieldValue.increment(-amtUsd),
+          'balances.USD':    require('firebase-admin').firestore.FieldValue.increment(-amtUsd),
+          totalWithdrawn:    require('firebase-admin').firestore.FieldValue.increment(amtUsd),
           updatedAt: new Date(),
           // Part C of the OTP fix — consume the verification on success so
           // it can't be replayed for a second withdrawal.
-          withdrawalOtpUsed:       admin.firestore.FieldValue.delete(),
-          withdrawalOtpVerifiedAt: admin.firestore.FieldValue.delete(),
+          withdrawalOtpUsed:       require('firebase-admin').firestore.FieldValue.delete(),
+          withdrawalOtpVerifiedAt: require('firebase-admin').firestore.FieldValue.delete(),
         });
       });
     } catch (txErr) {
@@ -626,7 +669,7 @@ export async function onRequest(context) {
       // there is nothing to mark as 'failed' here — the transaction rolled
       // back automatically and the user's balance was never touched.
       const sc = txErr.statusCode || 500;
-      return new Response(JSON.stringify({ error: txErr.message }), { status: sc });
+      return { statusCode: sc, body: JSON.stringify({ error: txErr.message }) };
     }
 
     /* ────────────────────────────────────────
@@ -671,15 +714,18 @@ export async function onRequest(context) {
       console.error('[create-payout] Failed to create payout doc after transaction committed:', docErr.message);
       try {
         await userRef.update({
-          cryptoBalance:  admin.firestore.FieldValue.increment(amtUsd),
-          'balances.USD': admin.firestore.FieldValue.increment(amtUsd),
-          totalWithdrawn: admin.firestore.FieldValue.increment(-amtUsd),
+          cryptoBalance:  require('firebase-admin').firestore.FieldValue.increment(amtUsd),
+          'balances.USD': require('firebase-admin').firestore.FieldValue.increment(amtUsd),
+          totalWithdrawn: require('firebase-admin').firestore.FieldValue.increment(-amtUsd),
           updatedAt:      new Date(),
         });
       } catch (refundErr) {
         console.error('[create-payout] CRITICAL: compensating refund also failed after doc creation error for uid ' + uid + ':', refundErr.message);
       }
-      return new Response(JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }), { status: 500 });
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }),
+      };
     }
 
     /* ────────────────────────────────────────
@@ -696,7 +742,6 @@ export async function onRequest(context) {
         amountCoin:    coinAmt,
         uid,
         payoutDocId:   payoutId,
-        env,
       }));
     } catch (nowErr) {
       /*
@@ -716,15 +761,18 @@ export async function onRequest(context) {
        */
       await payoutRef.update({ status: 'failed', errorMsg: nowErr.message, updatedAt: new Date() });
       await userRef.update({
-        cryptoBalance:  admin.firestore.FieldValue.increment(amtUsd),  // restore the crypto pool deducted above
-        'balances.USD': admin.firestore.FieldValue.increment(amtUsd),  // restore the display map
-        totalWithdrawn: admin.firestore.FieldValue.increment(-amtUsd),
+        cryptoBalance:  require('firebase-admin').firestore.FieldValue.increment(amtUsd),  // restore the crypto pool deducted above
+        'balances.USD': require('firebase-admin').firestore.FieldValue.increment(amtUsd),  // restore the display map
+        totalWithdrawn: require('firebase-admin').firestore.FieldValue.increment(-amtUsd),
         updatedAt:      new Date(),
       });
 
-      return new Response(JSON.stringify({
-        error: nowErr.message + ' Your balance has been refunded. Please request a new OTP verification and try again.',
-      }), { status: 502 });
+      return {
+        statusCode: 502,
+        body: JSON.stringify({
+          error: nowErr.message + ' Your balance has been refunded. Please request a new OTP verification and try again.',
+        }),
+      };
     }
 
     /* ────────────────────────────────────────
@@ -748,12 +796,12 @@ export async function onRequest(context) {
        STEP 6 — Send withdrawal confirmation email
     ──────────────────────────────────────── */
     try {
-      const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+      const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
       await fetch(`${platformUrl}/.netlify/functions/send-smart-notification`, {
         method:  'POST',
         headers: {
           'Content-Type':     'application/json',
-          'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+          'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
         },
         body:    JSON.stringify({
           userUid:    uid,
@@ -787,31 +835,33 @@ export async function onRequest(context) {
     /* ────────────────────────────────────────
        STEP 7 — Return success response
     ──────────────────────────────────────── */
-    return new Response(JSON.stringify({
-      success:           true,
-      payoutId,
-      batchId:           batchId      || null,
-      withdrawalId:      withdrawalId || null,
-      nowStatus:         nowStatus    || null,
-      newBalance,
-      // Lets the frontend crypto card update immediately after a successful
-      // crypto withdrawal (no full reload needed).
-      newCryptoBalance,
-      debitedCurrency:   'USD',
-      message:           `Withdrawal of ${usd(amtUsd)} initiated successfully.`,
-    }), {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: {
         'Content-Type':                'application/json',
         'Access-Control-Allow-Origin': '*',
       },
-    });
+      body: JSON.stringify({
+        success:           true,
+        payoutId,
+        batchId:           batchId      || null,
+        withdrawalId:      withdrawalId || null,
+        nowStatus:         nowStatus    || null,
+        newBalance,
+        // Lets the frontend crypto card update immediately after a successful
+        // crypto withdrawal (no full reload needed).
+        newCryptoBalance,
+        debitedCurrency:   'USD',
+        message:           `Withdrawal of ${usd(amtUsd)} initiated successfully.`,
+      }),
+    };
 
   } catch (err) {
     console.error('[create-payout] Unhandled error:', err);
-    return new Response(JSON.stringify({ error: 'Internal server error. Please try again.' }), {
-      status: 500,
+    return {
+      statusCode: 500,
       headers: { 'Access-Control-Allow-Origin': '*' },
-    });
+      body: JSON.stringify({ error: 'Internal server error. Please try again.' }),
+    };
   }
-  }
+};

@@ -41,20 +41,20 @@
  *   INTERNAL_FUNCTION_SECRET  — shared secret for server-to-server calls
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { verifyCaller }                  from './_verify-auth';
-import { sanitizeString }                from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { verifyCaller }                  = require('./_verify-auth');
+const { sanitizeString }                = require('./_sanitize');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -69,18 +69,19 @@ function getDb(env) {
 
 /* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
 /* ── Internal function caller (server-to-server) ── */
-async function callFunction(name, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(name, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`[decline-contract] PLATFORM_URL not set — cannot call ${name}.`);
     return;
@@ -90,7 +91,7 @@ async function callFunction(name, payload, env) {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body: JSON.stringify(payload),
     });
@@ -106,17 +107,15 @@ async function callFunction(name, payload, env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 1. Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
@@ -124,7 +123,7 @@ export async function onRequest(context) {
   /* ── 2. Parse and validate request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -138,13 +137,13 @@ export async function onRequest(context) {
   /* ── Init Firestore ── */
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('[decline-contract] Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   /* ── 3. Fetch the project doc ── */
   let projectSnap;
@@ -226,8 +225,8 @@ export async function onRequest(context) {
         declinerName: callerName,
         reason:       declineReason,
       },
-    }, env);
+    });
   }
 
   return respond(200, { ok: true });
-  }
+};

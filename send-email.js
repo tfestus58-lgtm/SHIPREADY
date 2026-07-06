@@ -4,15 +4,11 @@
 // Mobile-responsive email layout with inline styles for maximum client compatibility.
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
-import { sanitizeString, sanitizeEmail } from './_sanitize';
+const { sanitizeString, sanitizeEmail } = require('./_sanitize');
 
 // Live site domain — used for every link inside transactional emails.
-// NOTE: Workers modules load once at startup, before any request exists,
-// so `env` is not available at module scope. This starts as a safe
-// hardcoded fallback and is overwritten with the real env-sourced value
-// at the top of fetch(request, env, ctx) on every request, before any
-// template function (which reference this binding directly) is called.
-let PLATFORM_URL = 'https://kreddlo.space';
+// Falls back to the production domain only if PLATFORM_URL is not set in Netlify env vars.
+const PLATFORM_URL = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/+$/, '');
 
 const BRAND = {
   navy:      '#0d2145',
@@ -1155,16 +1151,10 @@ function buildEmail(type, data) {
 // Netlify Function handler
 // POST body shape: { to, toName?, type, data? }
 // ---------------------------------------------------------------------------
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-
-  /* ── Set the real platform URL from env for this request, before any
-     template function (which read the module-level PLATFORM_URL binding
-     directly) is called. See the PLATFORM_URL declaration comment above. ── */
-  PLATFORM_URL = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/+$/, '');
+exports.handler = async function (event) {
 
   /* ── Only allow POST ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -1190,9 +1180,9 @@ export async function onRequest(context) {
      Environment variables. If it is unset the guard always rejects, so the
      endpoint is never publicly accessible regardless of what the caller sends.
   ── */
-  const expectedSecret  = env.INTERNAL_FUNCTION_SECRET || '';
+  const expectedSecret  = process.env.INTERNAL_FUNCTION_SECRET || '';
   const receivedSecret  =
-    (request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '').trim();
+    (event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '').trim();
   const isTrustedCaller = !!expectedSecret && receivedSecret === expectedSecret;
   if (!isTrustedCaller) {
     console.warn('[send-email] Rejected request: missing or invalid x-internal-secret.');
@@ -1200,10 +1190,9 @@ export async function onRequest(context) {
   }
 
   /* ── Parse body ── */
-  const rawText = await request.text();
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -1234,9 +1223,9 @@ export async function onRequest(context) {
   const htmlContent = baseLayout(subject, preheader, body);
 
   /* ── Read env vars for sender ── */
-  const brevoKey    = env.BREVO_API_KEY;
-  const senderEmail = env.BREVO_SENDER_EMAIL || 'noreply@kreddlo.com';
-  const senderName  = env.BREVO_SENDER_NAME  || 'Kreddlo';
+  const brevoKey    = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@kreddlo.com';
+  const senderName  = process.env.BREVO_SENDER_NAME  || 'Kreddlo';
 
   if (!brevoKey) {
     console.error('BREVO_API_KEY environment variable is not set.');
@@ -1275,15 +1264,16 @@ export async function onRequest(context) {
     console.error('send-email error:', err);
     return respond(500, { error: 'Internal server error.', message: err.message });
   }
-}
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

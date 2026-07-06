@@ -48,20 +48,20 @@
  *                                every function that calls this one internally.
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const crypto                           = require('crypto');
+const { verifyCaller }                 = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -75,9 +75,9 @@ function getDb(env) {
 }
 
 /* ── Extract project_id for FCM HTTP v1 endpoint ── */
-function getProjectId(env) {
+function getProjectId() {
   try {
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
     return sa.project_id || '';
   } catch {
     return '';
@@ -85,8 +85,8 @@ function getProjectId(env) {
 }
 
 /* ── Generate a Google OAuth 2.0 access token from the service account ── */
-async function getGoogleAccessToken(env) {
-  const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+async function getGoogleAccessToken() {
+  const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 
   const now     = Math.floor(Date.now() / 1000);
   const payload = {
@@ -98,17 +98,12 @@ async function getGoogleAccessToken(env) {
   };
 
   const header   = { alg: 'RS256', typ: 'JWT' };
-  const b64url   = (obj) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  const b64url   = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
   const unsigned = `${b64url(header)}.${b64url(payload)}`;
 
-  // Sign with the private key using the Web Crypto API (RSASSA-PKCS1-v1_5 / SHA-256)
-  const privateKey = await importRsaPrivateKey(sa.private_key);
-  const sigBuffer   = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    privateKey,
-    new TextEncoder().encode(unsigned)
-  );
-  const signature = arrayBufferToBase64Url(sigBuffer);
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(unsigned);
+  const signature = sign.sign(sa.private_key, 'base64url');
   const jwt       = `${unsigned}.${signature}`;
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -126,37 +121,10 @@ async function getGoogleAccessToken(env) {
   return data.access_token;
 }
 
-// Converts a PEM-encoded PKCS#8 private key (as found in the Firebase
-// service account JSON) into a Web Crypto CryptoKey usable for signing.
-async function importRsaPrivateKey(pem) {
-  const pemBody = pem
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\s+/g, '');
-  const binaryDer = atob(pemBody);
-  const derBytes  = new Uint8Array(binaryDer.length);
-  for (let i = 0; i < binaryDer.length; i++) derBytes[i] = binaryDer.charCodeAt(i);
-  return crypto.subtle.importKey(
-    'pkcs8',
-    derBytes.buffer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-}
-
-// Encodes a raw signature ArrayBuffer as base64url (no padding).
-function arrayBufferToBase64Url(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 /* ── Send FCM push via HTTP v1 API ── */
-async function sendFcmPush({ fcmToken, title, body, url, env }) {
-  const projectId   = getProjectId(env);
-  const accessToken = await getGoogleAccessToken(env);
+async function sendFcmPush({ fcmToken, title, body, url }) {
+  const projectId   = getProjectId();
+  const accessToken = await getGoogleAccessToken();
   const fcmEndpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
   const message = {
@@ -202,8 +170,8 @@ async function sendFcmPush({ fcmToken, title, body, url, env }) {
 }
 
 /* ── Call a sibling Netlify function by name ── */
-async function callFunction(env, name, payload) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(name, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`callFunction: PLATFORM_URL not set, cannot call ${name}.`);
     return null;
@@ -212,7 +180,7 @@ async function callFunction(env, name, payload) {
     method:  'POST',
     headers: {
       'Content-Type':      'application/json',
-      'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+      'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
     },
     body:    JSON.stringify(payload),
   });
@@ -222,10 +190,9 @@ async function callFunction(env, name, payload) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -233,8 +200,8 @@ export async function onRequest(context) {
   //   1. Trusted internal server-to-server call (shared secret header)
   //   2. Authenticated admin (Firebase ID token + role === 'admin')
   const internalSecretHeader =
-    request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedInternalSecret = env.INTERNAL_FUNCTION_SECRET || '';
+    event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedInternalSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
   const isTrustedInternalCall =
     !!expectedInternalSecret && internalSecretHeader === expectedInternalSecret;
 
@@ -243,20 +210,20 @@ export async function onRequest(context) {
   if (isTrustedInternalCall) {
     // Server-to-server call — already trusted, skip user/role checks.
     try {
-      db = getDb(env);
+      db = getDb();
     } catch (err) {
       console.error('getDb() failed for internal call:', err.message);
       return respond(500, { error: 'Database initialization failed.' });
     }
   } else {
     // Fall back to admin-token auth (used by admin.html).
-    const callerUid = await verifyCaller(request, env);
+    const callerUid = await verifyCaller(event, process.env);
     if (!callerUid) {
       return respond(401, { error: 'Unauthorized.' });
     }
 
     try {
-      db = getDb(env);
+      db = getDb();
       const callerSnap = await db.collection('users').doc(callerUid).get();
       if (!callerSnap.exists || callerSnap.data().role !== 'admin') {
         return respond(403, { error: 'Forbidden — admin role required.' });
@@ -267,10 +234,9 @@ export async function onRequest(context) {
     }
   }
 
-  const rawText = await request.text();
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -303,7 +269,7 @@ export async function onRequest(context) {
     return respond(400, { error: 'templateId is required when emailMode is not "never".' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const notifUrl    = url || `${platformUrl}/dashboard.html`;
 
   /* ── Step 1: Fetch user from Firestore ── */
@@ -386,7 +352,7 @@ export async function onRequest(context) {
   /* ── Step 3: Send FCM push if token exists ── */
   if (fcmToken) {
     try {
-      const result = await sendFcmPush({ fcmToken, title, body, url: notifUrl, env });
+      const result = await sendFcmPush({ fcmToken, title, body, url: notifUrl });
       if (result.staleToken) {
         await db.collection('users').doc(userUid).update({ fcmToken: null });
         console.log(`Stale FCM token cleared for uid ${userUid}.`);
@@ -420,7 +386,7 @@ export async function onRequest(context) {
       // BREVO_API_KEY, or a Brevo outage all got silently recorded as a
       // successful send. Same res.ok check process-email-queue.js already
       // uses for this exact call.
-      const res = await callFunction(env, 'send-email', {
+      const res = await callFunction('send-email', {
         to:     recipientEmail,
         toName: recipientName || undefined,
         templateId,
@@ -481,15 +447,16 @@ export async function onRequest(context) {
 
   // Fallback for unknown emailMode
   return respond(200, { received: true, notifDocId });
-}
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

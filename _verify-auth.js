@@ -8,22 +8,22 @@
  *   4. Returns the decoded token's uid
  *
  * Usage in any function:
- *   import { verifyCaller } from './_verify-auth';
- *   const callerUid = await verifyCaller(request, env);
+ *   const { verifyCaller } = require('./_verify-auth');
+ *   const callerUid = await verifyCaller(event);
  *   if (!callerUid) return respond(401, { error: 'Unauthorized.' });
  *
  * Keep webhooks (stripe, flutterwave, nowpayments) untouched —
  * they use signature verification, not user tokens.
  */
 
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+const { getApps, initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 
 function ensureAdminInitialised(env) {
   if (!getApps().length) {
     let serviceAccount;
     try {
-      serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+      serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
     } catch {
       throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
     }
@@ -34,14 +34,13 @@ function ensureAdminInitialised(env) {
 /**
  * Verifies the Firebase ID token in the Authorization header.
  *
- * @param {Request} request - Cloudflare Workers request object
- * @param {object} env - Cloudflare Workers env bindings (holds FIREBASE_SERVICE_ACCOUNT)
+ * @param {object} event - Netlify function event object
  * @returns {string|null} Verified uid, or null if token is missing/invalid
  */
-async function verifyCaller(request, env) {
+async function verifyCaller(event, env) {
   // Handle both 'Authorization' and 'authorization' header casings
   const authHeader =
-    request.headers.get('authorization') || request.headers.get('Authorization') || '';
+    event.headers['authorization'] || event.headers['Authorization'] || '';
 
   if (!authHeader.startsWith('Bearer ')) {
     return null;
@@ -67,14 +66,13 @@ async function verifyCaller(request, env) {
  * stamped with buyerEmail) rather than trusting a client-supplied email
  * string in the request body, which could be spoofed.
  *
- * @param {Request} request - Cloudflare Workers request object
- * @param {object} env - Cloudflare Workers env bindings (holds FIREBASE_SERVICE_ACCOUNT)
+ * @param {object} event - Netlify function event object
  * @returns {{uid: string, email: string|null}|null} Verified identity, or
  *          null if the token is missing/invalid
  */
-async function verifyCallerWithEmail(request, env) {
+async function verifyCallerWithEmail(event, env) {
   const authHeader =
-    request.headers.get('authorization') || request.headers.get('Authorization') || '';
+    event.headers['authorization'] || event.headers['Authorization'] || '';
 
   if (!authHeader.startsWith('Bearer ')) {
     return null;
@@ -93,4 +91,4 @@ async function verifyCallerWithEmail(request, env) {
   }
 }
 
-export { verifyCaller, verifyCallerWithEmail };
+module.exports = { verifyCaller, verifyCallerWithEmail };

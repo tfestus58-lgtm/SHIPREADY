@@ -34,19 +34,19 @@
  *   FIREBASE_SERVICE_ACCOUNT  — full service account JSON
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
-import { verifyCallerWithEmail }        from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { verifyCallerWithEmail }        = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -59,29 +59,26 @@ function getDb(env) {
   return _db;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
         'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
-    });
+    };
   }
 
-  const rawText = await request.text();
-
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── Verify caller and get their AUTHENTICATED email from the token
      claim — never trust a client-supplied email field for this lookup. ── */
-  const caller = await verifyCallerWithEmail(request, env);
+  const caller = await verifyCallerWithEmail(event, process.env);
   if (!caller) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
@@ -97,7 +94,7 @@ export async function onRequest(context) {
   /* ── Init Firestore ── */
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
@@ -133,15 +130,16 @@ export async function onRequest(context) {
   });
 
   return respond(200, { success: true, orders });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

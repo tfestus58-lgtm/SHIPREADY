@@ -18,21 +18,21 @@
  *   PLATFORM_URL              — live domain e.g. https://kreddlo.space
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
-import { checkRateLimit }               from './_rate-limit';
-import { sanitizeString }               from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
+const { checkRateLimit }               = require('./_rate-limit');
+const { sanitizeString }               = require('./_sanitize');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -46,8 +46,8 @@ function getDb(env) {
 }
 
 /* ── Internal function caller (function-to-function via HTTP) ── */
-async function callFunction(functionName, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return;
@@ -58,7 +58,7 @@ async function callFunction(functionName, payload, env) {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -76,19 +76,17 @@ async function callFunction(functionName, payload, env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── Parse body ── */
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -107,7 +105,7 @@ export async function onRequest(context) {
      matching the invoice record (see below). */
   let callerUid = null;
   if (type !== 'invoice') {
-    callerUid = await verifyCaller(request, env);
+    callerUid = await verifyCaller(event, process.env);
     if (!callerUid) {
       return respond(401, { error: 'Unauthorized. Please log in again.' });
     }
@@ -126,13 +124,13 @@ export async function onRequest(context) {
   /* ── Init Firestore ── */
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   /* ══════════════════════════════════════════════════════════════
      INVOICE DISPUTE PATH
@@ -155,7 +153,7 @@ export async function onRequest(context) {
        Limit: 3 attempts per invoiceId per IP per hour. This is generous
        enough for a legitimate buyer (one real dispute per invoice) while
        stopping automated replay attacks that combine Bug C + D. */
-    const callerIp = (request.headers.get('x-forwarded-for') || request.headers.get('client-ip') || 'unknown')
+    const callerIp = (event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'unknown')
       .split(',')[0].trim();
     const rlResult = await checkRateLimit(db, `dispute-inv::${invoiceId}::${callerIp}`, 3, 3600);
     if (!rlResult.allowed) {
@@ -300,7 +298,7 @@ export async function onRequest(context) {
           raisedByName:  buyerDisplayName,
           disputeId:     invoiceId,
         },
-      }, env);
+      });
     }
 
     return respond(200, {
@@ -453,7 +451,7 @@ export async function onRequest(context) {
       raisedByName: raiserName,
       disputeId:    projectId,
     },
-  }, env);
+  });
 
   /* ── Notify the freelancer ── */
   if (freelancerUid) {
@@ -472,22 +470,23 @@ export async function onRequest(context) {
         raisedByName: raiserName,
         disputeId:    projectId,
       },
-    }, env);
+    });
   }
 
   return respond(200, {
     success: true,
     message: 'Dispute submitted. The Kreddlo team will be in touch.',
   });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

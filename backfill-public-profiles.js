@@ -54,14 +54,14 @@
  *   FIREBASE_SERVICE_ACCOUNT — full service account JSON (single-line string)
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
     let sa;
-    try { sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
+    try { sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
     catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.'); }
     initializeApp({ credential: cert(sa) });
   }
@@ -91,32 +91,30 @@ function extractPublicFields(userData) {
   return hasAny ? out : null;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405 });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed.' }) };
   }
 
   /* ── Issue 1 fix: ID token + role check (replaces shared ADMIN_SECRET) ── */
   let callerUid;
-  try { callerUid = await verifyCaller(request, env); }
+  try { callerUid = await verifyCaller(event, process.env); }
   catch { callerUid = null; }
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
   let db;
-  try { db = getDb(env); }
+  try { db = getDb(); }
   catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 
   let callerSnap;
   try { callerSnap = await db.collection('users').doc(callerUid).get(); }
-  catch { return new Response(JSON.stringify({ error: 'Database error' }), { status: 500 }); }
+  catch { return { statusCode: 500, body: JSON.stringify({ error: 'Database error' }) }; }
   if (!callerSnap.exists || callerSnap.data().role !== 'admin') {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+    return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 
   const result = { processed: 0, written: 0, skipped: 0, errors: [] };
@@ -158,9 +156,9 @@ export async function onRequest(context) {
   } catch (err) {
     console.error('[backfill-public-profiles] Error:', err);
     result.errors.push(err.message || String(err));
-    return new Response(JSON.stringify(result), { status: 500 });
+    return { statusCode: 500, body: JSON.stringify(result) };
   }
 
   console.log(`[backfill-public-profiles] Done — processed: ${result.processed}, written: ${result.written}, skipped: ${result.skipped}`);
-  return new Response(JSON.stringify(result), { status: 200 });
-  }
+  return { statusCode: 200, body: JSON.stringify(result) };
+};

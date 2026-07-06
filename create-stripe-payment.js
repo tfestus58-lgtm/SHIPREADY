@@ -43,9 +43,9 @@
  *   502 — Stripe API error
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { getSettings }                  = require('./get-settings');
 
 /* ── Stripe Checkout Sessions endpoint ── */
 const STRIPE_CHECKOUT_URL = 'https://api.stripe.com/v1/checkout/sessions';
@@ -54,12 +54,12 @@ const FRANKFURTER_URL     = 'https://api.frankfurter.app/latest';
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -187,20 +187,17 @@ async function getUsdRate(db, currency) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Parse and validate request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -218,7 +215,7 @@ export async function onRequest(context) {
   }
 
   /* ── 3. Pull environment variables ── */
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.error('PLATFORM_URL environment variable is not set.');
     return respond(500, { error: 'Platform URL is not configured. Please contact support.' });
@@ -227,7 +224,7 @@ export async function onRequest(context) {
   try {
 
     /* ── 4. Init Firebase and load platform settings ── */
-    const db       = getDb(env);
+    const db       = getDb();
     const settings = await getSettings(db);
 
     /* ── FIX #2: Read authoritative amount from Firestore — ignore client-supplied value ── */
@@ -268,7 +265,7 @@ export async function onRequest(context) {
     }
 
     /* ── 6. Guard: STRIPE_SECRET_KEY must be present ── */
-    const stripeKey = env.STRIPE_SECRET_KEY;
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
       console.error('STRIPE_SECRET_KEY environment variable is not set.');
       return respond(500, { error: 'Stripe is not configured. Please contact support.' });
@@ -421,15 +418,16 @@ export async function onRequest(context) {
     console.error('[create-stripe-payment] Unhandled error:', err);
     return respond(500, { error: 'Internal server error. Please try again.' });
   }
-  }
+};
 
-/* ── Utility: build a Workers function response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

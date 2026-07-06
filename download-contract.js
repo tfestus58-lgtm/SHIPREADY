@@ -25,59 +25,60 @@
 // Returns:
 //   application/pdf binary stream (Content-Disposition: attachment)
 
-import admin from 'firebase-admin';
-import { generatePdf } from './generate-contract-pdf.js';
+const admin = require('firebase-admin');
+const { generatePdf } = require('./generate-contract-pdf');
 
-function getAdmin(env) {
+function getAdmin() {
   if (admin.apps.length) return admin;
-  const svc = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  const svc = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({ credential: admin.credential.cert(svc) });
   return admin;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const url = new URL(request.url);
-  const contractId = url.searchParams.get('contractId') || '';
-  const idToken = url.searchParams.get('idToken') || '';
+exports.handler = async (event) => {
+  const { contractId, idToken } = event.queryStringParameters || {};
 
   if (!contractId || !idToken) {
-    return new Response('contractId and idToken are required', { status: 400 });
+    return { statusCode: 400, body: 'contractId and idToken are required' };
   }
 
   let uid;
   try {
-    const decoded = await getAdmin(env).auth().verifyIdToken(idToken);
+    const decoded = await getAdmin().auth().verifyIdToken(idToken);
     uid = decoded.uid;
   } catch (err) {
-    return new Response('Invalid or expired session. Please refresh and try again.', { status: 401 });
+    return { statusCode: 401, body: 'Invalid or expired session. Please refresh and try again.' };
   }
 
   try {
-    const db = getAdmin(env).firestore();
+    const db = getAdmin().firestore();
     // Fix #9: use `projects` collection — this is where create-project.js writes.
     // The orphaned `contracts` collection was never populated by any create path.
     const snap = await db.collection('projects').doc(contractId).get();
 
     if (!snap.exists) {
-      return new Response('Contract not found', { status: 404 });
+      return { statusCode: 404, body: 'Contract not found' };
     }
 
     const data = snap.data();
 
     // Auth check: only freelancer or buyer may download
     if (data.freelancerUid !== uid && data.buyerUid !== uid) {
-      return new Response('Access denied', { status: 403 });
+      return { statusCode: 403, body: 'Access denied' };
     }
 
     // If a stored PDF already exists, redirect to it — fastest path
     if (data.contractPdfUrl) {
-      return new Response(null, { status: 302, headers: { Location: data.contractPdfUrl } });
+      return {
+        statusCode: 302,
+        headers: { Location: data.contractPdfUrl },
+        body: '',
+      };
     }
 
     // Generate on-demand via the shared PDF generator (in-process call,
-    // no require()/fetch — generatePdf is a plain async function that
-    // returns the raw PDF Uint8Array directly).
+    // no fakeEvent shim — generatePdf is a plain async function that
+    // returns the raw PDF Buffer directly).
     function toIso(ts) {
       if (!ts) return '';
       // Firestore Timestamp
@@ -116,21 +117,23 @@ export async function onRequest(context) {
       pdfBytes = await generatePdf(params);
     } catch (genErr) {
       console.error('[download-contract] PDF generation failed:', genErr);
-      return new Response('PDF generation failed', { status: 500 });
+      return { statusCode: 500, body: 'PDF generation failed' };
     }
 
     // Pass through the binary PDF
-    return new Response(pdfBytes, {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: {
         'Content-Type':        'application/pdf',
         'Content-Disposition': `attachment; filename="kreddlo-contract-${contractId}.pdf"`,
         'Cache-Control':       'private, no-store',
       },
-    });
+      body:            pdfBytes.toString('base64'),
+      isBase64Encoded: true,
+    };
 
   } catch (err) {
     console.error('[download-contract]', err);
-    return new Response(err.message || 'Download failed', { status: 500 });
+    return { statusCode: 500, body: err.message || 'Download failed' };
   }
-}
+};

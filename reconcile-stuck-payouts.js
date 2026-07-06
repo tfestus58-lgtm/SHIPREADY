@@ -30,7 +30,8 @@
  *                                imported from nowpayments-payout-webhook.js)
  */
 
-import { getDb, processPayoutStatusUpdate } from './nowpayments-payout-webhook';
+const https = require('https');
+const { getDb, processPayoutStatusUpdate } = require('./nowpayments-payout-webhook');
 
 // Give the live webhook this long to resolve a payout on its own before we
 // start polling for it — avoids racing a webhook that's simply a few
@@ -41,14 +42,22 @@ const STALE_AFTER_MS = 10 * 60 * 1000; // 10 minutes
 // Any leftovers are picked up on the next scheduled run.
 const BATCH_LIMIT = 50;
 
-async function httpsGet(hostname, path, headers) {
-  const res = await fetch(`https://${hostname}${path}`, {
-    method: 'GET',
-    headers: headers || {},
+function httpsGet(hostname, path, headers) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({ hostname, path, method: 'GET', headers: headers || {} }, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => (raw += chunk));
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(raw) });
+        } catch (e) {
+          resolve({ status: res.statusCode, body: raw });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
   });
-  const raw = await res.text();
-  try { return { status: res.status, body: JSON.parse(raw) }; }
-  catch (e) { return { status: res.status, body: raw }; }
 }
 
 /**
@@ -57,8 +66,8 @@ async function httpsGet(hostname, path, headers) {
  * (network error, non-200, unexpected shape) — callers must leave the
  * payout untouched on null rather than guessing.
  */
-async function fetchNowPaymentsStatus(env, withdrawalId) {
-  const apiKey = env && env.NOWPAYMENTS_API_KEY;
+async function fetchNowPaymentsStatus(withdrawalId) {
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey || !withdrawalId) return null;
 
   try {
@@ -97,7 +106,7 @@ function toDateSafe(value) {
  *                                  withdrawal id ('withdrawalId' or
  *                                  'nowPaymentsId')
  */
-async function reconcileCollection(db, env, collectionName, statusToScan, idField) {
+async function reconcileCollection(db, collectionName, statusToScan, idField) {
   const result = { scanned: 0, polled: 0, resolved: 0, skipped: 0, errors: 0 };
 
   let snap;
@@ -139,7 +148,7 @@ async function reconcileCollection(db, env, collectionName, statusToScan, idFiel
     }
 
     result.polled++;
-    const nowData = await fetchNowPaymentsStatus(env, withdrawalId);
+    const nowData = await fetchNowPaymentsStatus(withdrawalId);
     if (!nowData) {
       // Couldn't verify this round — leave it exactly as-is for next run.
       continue;
@@ -149,7 +158,7 @@ async function reconcileCollection(db, env, collectionName, statusToScan, idFiel
     if (!rawStatus) continue;
 
     try {
-      const outcome = await processPayoutStatusUpdate(db, env, {
+      const outcome = await processPayoutStatusUpdate(db, {
         withdrawalId: nowData.id || withdrawalId,
         batchId:      nowData.batch_withdrawal_id || data.batchId || null,
         extraId:      doc.id,
@@ -167,43 +176,57 @@ async function reconcileCollection(db, env, collectionName, statusToScan, idFiel
   return result;
 }
 
-// NOTE: Cloudflare Pages Functions have no Cron Trigger mechanism, so
-// this scheduled() handler is preserved here as a plain export but is
-// NOT currently invoked by anything on Pages. See migration notes.
-export async function scheduled(event, env, ctx) {
-  /* ── Trigger source ──
-     Cloudflare Workers' scheduled() handler can only ever be invoked by
-     Cloudflare's own Cron Trigger system — there is no public URL that
-     reaches it, unlike Netlify's event.headers-based check this replaces.
-     The fetch() handler below is the only HTTP-reachable entry point for
-     this file, and it never runs this business logic. No auth check is
-     needed here as a result. (Note: the original event.headers-based
-     check could not simply be left in place — ScheduledEvent has no
-     .headers property, so event.headers['x-nf-event'] would throw a
-     TypeError on every real cron run.) */
+exports.handler = async function (event) {
+  /* ── Auth guard (Issue 8 fix) ───────────────────────────────────────────────
+     Previously this function had NO auth check, so any unauthenticated caller
+     could POST to its public Netlify URL and trigger full NOWPayments API
+     polling plus Firestore reads/writes on demand — an open door for
+     resource/cost abuse.
+
+     Fix: mirrors the identical guard used by scheduled-clear-earnings.js and
+     scheduled-subscriptions.js. Two paths are accepted:
+       1. Netlify's own cron runner, which sends 'X-NF-Event: schedule'.
+       2. A trusted internal caller (e.g. admin panel, another function) that
+          sends a valid x-internal-secret header, consistent with every other
+          server-to-server check in this codebase.
+
+     All other callers receive 401 Unauthorized and the handler exits
+     immediately — no Firebase init, no NOWPayments polling, no Firestore
+     writes. ── */
+  const nfEvent        = event.headers['x-nf-event']        || event.headers['X-NF-Event']        || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
+  const isRealSchedule = nfEvent === 'schedule';
+  const isTrustedCall  = !!expectedSecret && incomingSecret === expectedSecret;
+  if (!isRealSchedule && !isTrustedCall) {
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+  }
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('[reconcile-stuck-payouts] Firebase Admin init failed:', err.message);
-    return;
+    return { statusCode: 500, body: JSON.stringify({ error: 'Internal configuration error.' }) };
   }
 
-  if (!env || !env.NOWPAYMENTS_API_KEY) {
+  if (!process.env.NOWPAYMENTS_API_KEY) {
     console.warn('[reconcile-stuck-payouts] NOWPAYMENTS_API_KEY not set — skipping run.');
-    return;
+    return { statusCode: 200, body: JSON.stringify({ skipped: true, reason: 'no API key configured' }) };
   }
 
   const [cryptoResult, affiliateResult] = await Promise.all([
-    reconcileCollection(db, env, 'payouts', 'sent', 'withdrawalId'),
-    reconcileCollection(db, env, 'affiliate-payouts', 'processing', 'nowPaymentsId'),
+    reconcileCollection(db, 'payouts', 'sent', 'withdrawalId'),
+    reconcileCollection(db, 'affiliate-payouts', 'processing', 'nowPaymentsId'),
   ]);
 
   console.log('[reconcile-stuck-payouts] payouts:', cryptoResult, '| affiliate-payouts:', affiliateResult);
-  }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response('Scheduled function — not callable via HTTP.', { status: 200 });
-  }
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      payouts:          cryptoResult,
+      affiliatePayouts: affiliateResult,
+    }),
+  };
+};

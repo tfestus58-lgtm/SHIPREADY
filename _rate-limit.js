@@ -2,10 +2,10 @@
  * _rate-limit.js — Shared server-side rate limiting helper
  *
  * Uses Firestore as the counter store so limits are enforced across
- * every Worker instance with no shared memory required.
+ * every Netlify function instance with no shared memory required.
  *
  * Usage:
- *   import { checkRateLimit } from './_rate-limit';
+ *   const { checkRateLimit } = require('./_rate-limit');
  *
  *   // Inside your handler, after uid / ip is known:
  *   const rlResult = await checkRateLimit(db, `sve::${uid}`, 5, 600);

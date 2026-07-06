@@ -35,9 +35,7 @@
  *                       needed when resolving a Stripe-supported currency
  */
 
-import { verifyCaller } from './_verify-auth';
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
+const { verifyCaller } = require('./_verify-auth');
 
 const FLW_BASE    = 'https://api.flutterwave.com/v3';
 const STRIPE_BASE = 'https://api.stripe.com/v1';
@@ -49,17 +47,19 @@ const STRIPE_BASE = 'https://api.stripe.com/v1';
 ───────────────────────────────────────────── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
-  if (!getApps().length) {
-    const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
-    initializeApp({
-      credential: cert(serviceAccount),
+  const admin = require('firebase-admin');
+
+  if (!admin.apps.length) {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
     });
   }
 
-  _db = getFirestore();
+  _db = admin.firestore();
   return _db;
 }
 
@@ -86,36 +86,34 @@ const STRIPE_FIELD_MAP = {
 
 const STRIPE_CURRENCIES = Object.keys(STRIPE_FIELD_MAP);
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function (event) {
   const CORS = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   };
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS });
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS, body: '' };
   }
-  if (request.method !== 'GET') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405, headers: CORS });
+  if (event.httpMethod !== 'GET') {
+    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed.' }) };
   }
 
   /* ── Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized. Please log in again.' }), { status: 401, headers: CORS });
+    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized. Please log in again.' }) };
   }
 
-  const url      = new URL(request.url);
-  const params   = Object.fromEntries(url.searchParams);
+  const params   = event.queryStringParameters || {};
   const currency = (params.currency || 'NGN').toUpperCase().trim();
 
   /* ════════════════════════════════════════════════════════════════
    * STRIPE PATH — international currencies
    * ════════════════════════════════════════════════════════════════ */
   if (STRIPE_CURRENCIES.includes(currency)) {
-    return resolveViaStripe(currency, params, CORS, env);
+    return resolveViaStripe(currency, params, CORS);
   }
 
   /* ════════════════════════════════════════════════════════════════
@@ -125,19 +123,20 @@ export async function onRequest(context) {
   const accountNumber = (params.accountNumber || '').trim();
 
   if (!bankCode) {
-    return new Response(JSON.stringify({ error: 'Bank is required.' }), { status: 400, headers: CORS });
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Bank is required.' }) };
   }
   if (!accountNumber) {
-    return new Response(JSON.stringify({ error: 'Account number is required.' }), { status: 400, headers: CORS });
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Account number is required.' }) };
   }
 
-  const flwKey = env.FLW_SECRET_KEY;
+  const flwKey = process.env.FLW_SECRET_KEY;
   if (!flwKey) {
     console.error('[resolve-bank-account] FLW_SECRET_KEY not set.');
-    return new Response(JSON.stringify({ error: 'Account lookup is temporarily unavailable.' }), {
-      status: 503,
+    return {
+      statusCode: 503,
       headers: CORS,
-    });
+      body: JSON.stringify({ error: 'Account lookup is temporarily unavailable.' }),
+    };
   }
 
   try {
@@ -156,10 +155,11 @@ export async function onRequest(context) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || data.status !== 'success' || !data.data || !data.data.account_name) {
-      return new Response(JSON.stringify({ error: data.message || 'Could not verify this account. Check the bank and account number.' }), {
-        status: 422,
+      return {
+        statusCode: 422,
         headers: CORS,
-      });
+        body: JSON.stringify({ error: data.message || 'Could not verify this account. Check the bank and account number.' }),
+      };
     }
 
     // Fix 16 — persist the resolved account holder name so
@@ -170,7 +170,8 @@ export async function onRequest(context) {
     // only returns a bank_name, not an account holder name, so there's
     // nothing meaningful to compare against there.)
     try {
-      const db = getDb(env);
+      const db = getDb();
+      const { FieldValue } = require('firebase-admin').firestore;
       await db.collection('users').doc(callerUid).update({
         lastResolvedAccountName:   data.data.account_name,
         lastResolvedAccountNumber: accountNumber,
@@ -180,18 +181,20 @@ export async function onRequest(context) {
       console.warn('[resolve-bank-account] Could not persist lastResolvedAccountName:', persistErr.message);
     }
 
-    return new Response(JSON.stringify({ accountName: data.data.account_name }), {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({ accountName: data.data.account_name }),
+    };
   } catch (err) {
     console.error('[resolve-bank-account] Lookup failed:', err.message);
-    return new Response(JSON.stringify({ error: 'Could not verify this account. Please try again.' }), {
-      status: 502,
+    return {
+      statusCode: 502,
       headers: CORS,
-    });
+      body: JSON.stringify({ error: 'Could not verify this account. Please try again.' }),
+    };
   }
-}
+};
 
 /**
  * Resolves a bank name for a Stripe-supported international currency by
@@ -200,7 +203,7 @@ export async function onRequest(context) {
  * routing/sort/BSB number or IBAN — we never store or reuse the token
  * itself, only read the bank name back out of the response.
  */
-async function resolveViaStripe(currency, params, CORS, env) {
+async function resolveViaStripe(currency, params, CORS) {
   const shape = STRIPE_FIELD_MAP[currency];
 
   const accountNumber = (params.accountNumber || '').trim();
@@ -215,41 +218,42 @@ async function resolveViaStripe(currency, params, CORS, env) {
 
   if (shape.type === 'iban') {
     if (!iban) {
-      return new Response(JSON.stringify({ error: 'IBAN is required.' }), { status: 400, headers: CORS });
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'IBAN is required.' }) };
     }
     const ibanCountry = iban.slice(0, 2);
     if (!/^[A-Z]{2}$/.test(ibanCountry)) {
-      return new Response(JSON.stringify({ error: 'That IBAN doesn\u2019t look valid. Please check and try again.' }), { status: 400, headers: CORS });
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'That IBAN doesn\u2019t look valid. Please check and try again.' }) };
     }
     bankAccount.country        = ibanCountry;
     bankAccount.account_number = iban;
   } else {
     if (!accountNumber) {
-      return new Response(JSON.stringify({ error: 'Account number is required.' }), { status: 400, headers: CORS });
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Account number is required.' }) };
     }
     bankAccount.country        = shape.country;
     bankAccount.account_number = accountNumber;
 
     if (shape.type === 'routing_account') {
       if (!routingNumber) {
-        return new Response(JSON.stringify({ error: 'Routing number is required.' }), { status: 400, headers: CORS });
+        return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Routing number is required.' }) };
       }
       bankAccount.routing_number = routingNumber;
     } else if (shape.type === 'sort_account') {
       if (!sortCode) {
-        return new Response(JSON.stringify({ error: 'Sort code is required.' }), { status: 400, headers: CORS });
+        return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Sort code is required.' }) };
       }
       bankAccount.routing_number = sortCode;
     }
   }
 
-  const stripeKey = env.STRIPE_SECRET_KEY;
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     console.error('[resolve-bank-account] STRIPE_SECRET_KEY not set.');
-    return new Response(JSON.stringify({ error: 'Account lookup is temporarily unavailable.' }), {
-      status: 503,
+    return {
+      statusCode: 503,
       headers: CORS,
-    });
+      body: JSON.stringify({ error: 'Account lookup is temporarily unavailable.' }),
+    };
   }
 
   const form = new URLSearchParams();
@@ -271,26 +275,29 @@ async function resolveViaStripe(currency, params, CORS, env) {
 
     if (!res.ok || !data.bank_account) {
       const msg = (data.error && data.error.message) || 'Could not verify this account. Check the details and try again.';
-      return new Response(JSON.stringify({ error: msg }), { status: 422, headers: CORS });
+      return { statusCode: 422, headers: CORS, body: JSON.stringify({ error: msg }) };
     }
 
     const bankName = data.bank_account.bank_name;
     if (!bankName) {
-      return new Response(JSON.stringify({ error: 'Could not determine the bank for these details. You can still continue \u2014 the bank name is for display only.' }), {
-        status: 422,
+      return {
+        statusCode: 422,
         headers: CORS,
-      });
+        body: JSON.stringify({ error: 'Could not determine the bank for these details. You can still continue \u2014 the bank name is for display only.' }),
+      };
     }
 
-    return new Response(JSON.stringify({ accountName: bankName, stripeAccountToken: data.id }), {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({ accountName: bankName, stripeAccountToken: data.id }),
+    };
   } catch (err) {
     console.error('[resolve-bank-account] Stripe lookup failed:', err.message);
-    return new Response(JSON.stringify({ error: 'Could not verify this account. Please try again.' }), {
-      status: 502,
+    return {
+      statusCode: 502,
       headers: CORS,
-    });
+      body: JSON.stringify({ error: 'Could not verify this account. Please try again.' }),
+    };
   }
 }

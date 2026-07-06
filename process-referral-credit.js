@@ -22,17 +22,16 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 /* ── Lazy Firebase Admin init ─────────────────────────────────── */
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -43,11 +42,11 @@ function getDb(env) {
   return _db;
 }
 
+const { getSettings } = require('./get-settings');
+
 /* ── Handler ──────────────────────────────────────────────────── */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') {
+exports.handler = async function (event) {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -62,15 +61,15 @@ export async function onRequest(context) {
      not an open door — same pattern used by every other internal function
      in this codebase (scheduled-clear-earnings.js, approve-delivery.js, etc).
   ──────────────────────────────────────────────────────────────── */
-  const incomingSecret = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedSecret = env.INTERNAL_FUNCTION_SECRET || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
   if (!expectedSecret || incomingSecret !== expectedSecret) {
     return respond(401, { error: 'Unauthorized.' });
   }
 
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -84,7 +83,7 @@ export async function onRequest(context) {
     return respond(400, { error: 'projectId is required.' });
   }
 
-  const db = getDb(env);
+  const db = getDb();
 
   /* ── 1. Check referral program is enabled ─────────────────── */
   let settings;
@@ -269,10 +268,10 @@ export async function onRequest(context) {
   /* ── 9. Send notification email to referrer ─────────────── */
   if (referrerEmail) {
     try {
-      const baseUrl = env.PLATFORM_URL || env.URL || 'https://kreddlo.space';
+      const baseUrl = process.env.PLATFORM_URL || process.env.URL || 'https://kreddlo.space';
       await fetch(`${baseUrl}/.netlify/functions/send-email`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
         body: JSON.stringify({
           to:         referrerEmail,
           toName:     referrerName,
@@ -294,15 +293,16 @@ export async function onRequest(context) {
     success: true,
     message: `Referral credit of $${creditAmount} applied to referrer ${referrerUid}.`,
   });
-  }
+};
 
 /* ── Utility ──────────────────────────────────────────────────── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

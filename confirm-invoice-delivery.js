@@ -20,27 +20,27 @@
  *   PLATFORM_URL
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
 
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
-  try { serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
+  try { serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
   catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.'); }
   if (!getApps().length) initializeApp({ credential: cert(serviceAccount) });
   _db = getFirestore();
   return _db;
 }
 
-async function callFunction(functionName, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) return;
   try {
     const res = await fetch(`${platformUrl}/.netlify/functions/${functionName}`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
       body:    JSON.stringify(payload),
     });
     if (!res.ok) console.warn(`${functionName} returned ${res.status}: ${await res.text()}`);
@@ -49,13 +49,11 @@ async function callFunction(functionName, payload, env) {
   }
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') return respond(405, { error: 'Method not allowed.' });
 
   let body;
-  try { body = JSON.parse(rawText || '{}'); }
+  try { body = JSON.parse(event.body || '{}'); }
   catch { return respond(400, { error: 'Invalid JSON body.' }); }
 
   const { invoiceId, confirmToken } = body;
@@ -63,7 +61,7 @@ export async function onRequest(context) {
   if (!confirmToken || typeof confirmToken !== 'string') return respond(400, { error: 'confirmToken is required.' });
 
   let db;
-  try { db = getDb(env); }
+  try { db = getDb(); }
   catch (err) { return respond(500, { error: 'Database not available.' }); }
 
   /* ── Atomic: validate token, check status, mark completed, credit balance ──
@@ -226,7 +224,7 @@ export async function onRequest(context) {
     }
   } catch (_) {}
 
-  const platformUrl   = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl   = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const amountFormatted = new Intl.NumberFormat('en', { style: 'currency', currency }).format(sellerAmount);
 
   /* ── Notify freelancer: funds released ── */
@@ -243,14 +241,15 @@ export async function onRequest(context) {
       amount:        amountFormatted,
       dashboardUrl:  `${platformUrl}/dashboard-invoices.html`,
     },
-  }, env);
+  });
 
   return respond(200, { success: true, message: 'Delivery confirmed. Funds have been released to the freelancer.' });
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

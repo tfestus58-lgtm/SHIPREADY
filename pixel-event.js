@@ -22,23 +22,20 @@
  *                           If not set, function exits silently with 200.
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object
-// (crypto.subtle.digest, crypto.getRandomValues) — no import needed.
+const crypto = require('crypto');
 
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Always 200 on non-POST (pixel should never block anything) ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(200, { ok: true });
   }
 
   /* ── If no access token configured, exit silently ── */
-  const accessToken = env.FACEBOOK_ACCESS_TOKEN;
+  const accessToken = process.env.FACEBOOK_ACCESS_TOKEN;
   if (!accessToken) {
     return respond(200, { ok: true, skipped: true });
   }
@@ -46,7 +43,7 @@ export async function onRequest(context) {
   /* ── Parse body (fail silently) ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(200, { ok: true });
   }
@@ -65,11 +62,9 @@ export async function onRequest(context) {
   }
 
   /* ── Hash the email with SHA-256 (Meta CAPI requirement) ── */
-  let hashedEmail;
-  if (email) {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email.trim().toLowerCase()));
-    hashedEmail = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
+  const hashedEmail = email
+    ? crypto.createHash('sha256').update(email.trim().toLowerCase()).digest('hex')
+    : undefined;
 
   /* ── Build the CAPI payload ── */
   const capiPayload = {
@@ -115,11 +110,12 @@ export async function onRequest(context) {
 
   /* ── Always return 200 — pixel failures must never interrupt payment flow ── */
   return respond(200, { ok: true });
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

@@ -37,18 +37,18 @@
  *   502 — Gateway error
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { getSettings }                   from './get-settings';
-import { verifyCaller }                  from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { getSettings }                   = require('./get-settings');
+const { verifyCaller }                  = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -60,14 +60,14 @@ function getDb(env) {
 }
 
 /* ── Call a sibling Netlify function (internal server-to-server) ── */
-async function callFunction(functionName, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) throw new Error('PLATFORM_URL is not set.');
   const res = await fetch(`${platformUrl}/.netlify/functions/${functionName}`, {
     method:  'POST',
     headers: {
       'Content-Type':      'application/json',
-      'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+      'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
     },
     body:    JSON.stringify(payload),
   });
@@ -80,19 +80,17 @@ async function callFunction(functionName, payload, env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Parse body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -113,7 +111,7 @@ export async function onRequest(context) {
   // The Firebase ID token must be present and must belong to the uid in the body.
   // This prevents one user from initiating a subscription charge against another
   // user's uid by simply swapping the value in the request body.
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
     return respond(401, { error: 'Unauthorized. Please log in again.' });
   }
@@ -121,13 +119,13 @@ export async function onRequest(context) {
     return respond(403, { error: 'Caller identity mismatch.' });
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     return respond(500, { error: 'PLATFORM_URL is not configured.' });
   }
 
   try {
-    const db       = getDb(env);
+    const db       = getDb();
     const settings = await getSettings(db);
 
     /* ── 3. Read Pro plan price from Firestore config ── */
@@ -193,7 +191,7 @@ export async function onRequest(context) {
           billingPeriod,
           subscriptionId,
         },
-      }, env);
+      });
       checkoutUrl = result.checkoutUrl;
 
     } else if (gateway === 'flutterwave') {
@@ -209,7 +207,7 @@ export async function onRequest(context) {
           billingPeriod,
           subscriptionId,
         },
-      }, env);
+      });
       checkoutUrl = result.checkoutUrl;
 
     } else {
@@ -225,7 +223,7 @@ export async function onRequest(context) {
           billingPeriod,
           subscriptionId,
         },
-      }, env);
+      });
       checkoutUrl = result.invoiceUrl || result.checkoutUrl;
     }
 
@@ -240,14 +238,15 @@ export async function onRequest(context) {
     console.error('[create-subscription] Unhandled error:', err);
     return respond(500, { error: err.message || 'Internal server error.' });
   }
-  }
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

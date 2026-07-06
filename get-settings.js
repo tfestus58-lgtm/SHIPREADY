@@ -1,7 +1,7 @@
 /**
  * get-settings.js
- * Shared helper — NOT an HTTP function handler.
- * Usage: import { getSettings } from './get-settings';
+ * Shared helper — NOT a Netlify function handler.
+ * Usage: const { getSettings } = require('./get-settings');
  *        const settings = await getSettings(db);
  */
 

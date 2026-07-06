@@ -39,39 +39,37 @@
 
 const NOWPAYMENTS_INVOICE_ENDPOINT = 'https://api.nowpayments.io/v1/invoice';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore }                 from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore }                 = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
-  try { serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
+  try { serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
   catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.'); }
   if (!getApps().length) { initializeApp({ credential: cert(serviceAccount) }); }
   _db = getFirestore();
   return _db;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── 1. Only allow POST ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Verify caller — internal secret OR authenticated user ── */
-  const incomingSecret = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedSecret = env.INTERNAL_FUNCTION_SECRET || '';
+  const incomingSecret = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret = process.env.INTERNAL_FUNCTION_SECRET || '';
   const isTrustedInternal = !!expectedSecret && incomingSecret === expectedSecret;
 
   if (!isTrustedInternal) {
     // Browser path: require a valid Firebase ID token
-    const callerUid = await verifyCaller(request, env);
+    const callerUid = await verifyCaller(event, process.env);
     if (!callerUid) {
       return respond(401, { error: 'Unauthorized. Please log in again.' });
     }
@@ -80,7 +78,7 @@ export async function onRequest(context) {
   /* ── 3. Parse and validate the request body ── */
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON in request body.' });
   }
@@ -95,8 +93,8 @@ export async function onRequest(context) {
   }
 
   /* ── 4. Pull environment variables ── */
-  const apiKey      = env.NOWPAYMENTS_API_KEY;
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const apiKey      = process.env.NOWPAYMENTS_API_KEY;
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   if (!apiKey) {
     console.error('NOWPAYMENTS_API_KEY environment variable is not set.');
@@ -114,7 +112,7 @@ export async function onRequest(context) {
   let cancelUrl;
 
   try {
-    const db = getDb(env);
+    const db = getDb();
     const isSubscription = orderId.trim().startsWith('sub_');
 
     if (isSubscription) {
@@ -230,16 +228,17 @@ export async function onRequest(context) {
     invoiceUrl,              // kept for backward-compatibility
     invoiceId: nowData.id,
   });
-  }
+};
 
 
 /* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*', // tighten to your domain in production
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

@@ -4,36 +4,35 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
 
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     initializeApp({ credential: cert(sa) });
   }
   return getFirestore();
 }
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') return respond(200, {});
-  if (request.method !== 'POST')    return respond(405, { error: 'Method not allowed.' });
+exports.handler = async function(event) {
+  if (event.httpMethod === 'OPTIONS') return respond(200, {});
+  if (event.httpMethod !== 'POST')    return respond(405, { error: 'Method not allowed.' });
 
-  const rawText = await request.text();
   let uid, code;
   try {
-    ({ uid, code } = JSON.parse(rawText || '{}'));
+    ({ uid, code } = JSON.parse(event.body || '{}'));
   } catch {
     return respond(400, { error: 'Invalid request body.' });
   }
@@ -44,7 +43,7 @@ export async function onRequest(context) {
   /* ── Fetch user document ── */
   let db, userSnap;
   try {
-    db       = getDb(env);
+    db       = getDb();
     userSnap = await db.collection('users').doc(uid).get();
   } catch (err) {
     console.error('[verify-email-code] Firestore read error:', err.message);
@@ -100,4 +99,4 @@ export async function onRequest(context) {
 
   console.log(`[verify-email-code] uid ${uid} successfully verified.`);
   return respond(200, { success: true, role: user.role || null });
-}
+};

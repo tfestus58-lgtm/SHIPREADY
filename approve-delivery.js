@@ -30,20 +30,20 @@
  *   INTERNAL_FUNCTION_SECRET    — shared secret for server-to-server calls
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
-import { sanitizeString }               from './_sanitize';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
+const { sanitizeString }               = require('./_sanitize');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -57,8 +57,8 @@ function getDb(env) {
 }
 
 /* ── Internal function caller (function-to-function via HTTP) ── */
-async function callFunction(functionName, payload, env) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return;
@@ -69,7 +69,7 @@ async function callFunction(functionName, payload, env) {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -87,12 +87,10 @@ async function callFunction(functionName, payload, env) {
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
+exports.handler = async (event) => {
 
   /* ── Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
@@ -107,14 +105,14 @@ export async function onRequest(context) {
   //   in the Authorization header is verified and its uid used directly.
   //   Any buyerUid in the body must match the verified token uid.
   //
-  const incomingSecret  = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
-  const expectedSecret  = env.INTERNAL_FUNCTION_SECRET || '';
+  const incomingSecret  = event.headers['x-internal-secret'] || event.headers['X-Internal-Secret'] || '';
+  const expectedSecret  = process.env.INTERNAL_FUNCTION_SECRET || '';
   const isTrustedInternal = !!expectedSecret && incomingSecret === expectedSecret;
 
   /* ── Parse body ── */
   let payload;
   try {
-    payload = JSON.parse(rawText || '{}');
+    payload = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -132,7 +130,7 @@ export async function onRequest(context) {
     buyerUid = bodyBuyerUid;
   } else {
     // Browser path: verify the Firebase ID token.
-    const callerUid = await verifyCaller(request, env);
+    const callerUid = await verifyCaller(event, process.env);
     if (!callerUid) {
       return respond(401, { error: 'Unauthorized. Please log in again.' });
     }
@@ -150,7 +148,7 @@ export async function onRequest(context) {
   /* ── Init Firestore ── */
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
@@ -212,7 +210,7 @@ export async function onRequest(context) {
       return respond(500, { error: 'Failed to request revision. Please try again.' });
     }
 
-    const revisionPlatformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+    const revisionPlatformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
     const revisionProjectUrl  = `${revisionPlatformUrl}/dashboard-projects.html?projectId=${encodeURIComponent(projectId)}`;
     const revisionProjectTitle = project.projectTitle || 'Your project';
 
@@ -228,7 +226,7 @@ export async function onRequest(context) {
           projectTitle: revisionProjectTitle,
           revisionNote: safeNote,
         },
-      }, env);
+      });
     }
 
     return respond(200, { success: true });
@@ -371,7 +369,7 @@ export async function onRequest(context) {
     console.warn('Could not fetch user details for notifications:', err.message);
   }
 
-  const platformUrl  = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl  = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const projectUrl   = `${platformUrl}/dashboard-projects.html?projectId=${encodeURIComponent(projectId)}`;
   const buyerProjUrl = `${platformUrl}/buyer-projects.html?projectId=${encodeURIComponent(projectId)}`;
 
@@ -389,7 +387,7 @@ export async function onRequest(context) {
       amount:       amountFormatted,
       buyerName,
     },
-  }, env);
+  });
 
   /* ── Notify the buyer: delivery confirmed ── */
   if (buyerUid || buyerEmail) {
@@ -406,17 +404,17 @@ export async function onRequest(context) {
         projectTitle,
         dashboardUrl: buyerProjUrl,
       },
-    }, env);
+    });
   }
 
   /* ── B6: Fire-and-forget referral credit check ── */
   try {
-    const baseUrl = env.PLATFORM_URL || env.URL || 'https://kreddlo.space';
+    const baseUrl = process.env.PLATFORM_URL || process.env.URL || 'https://kreddlo.space';
     fetch(`${baseUrl}/.netlify/functions/process-referral-credit`, {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body: JSON.stringify({ completedByUid: buyerUid, projectId }),
     }).catch(err => console.warn('[approve-delivery] referral-credit fire-and-forget error:', err.message));
@@ -428,15 +426,16 @@ export async function onRequest(context) {
     success: true,
     message: `Delivery approved. ${amountFormatted} credited to ${freelancerName}.`,
   });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

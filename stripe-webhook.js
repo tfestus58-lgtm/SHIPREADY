@@ -22,25 +22,24 @@
  *   PLATFORM_URL             — live domain, e.g. https://kreddlo.space
  *
  * Stripe sends the raw request body as-is for signature verification.
- * Cloudflare Workers provides the raw body via request.text(), which
- * always returns a UTF-8 string for HMAC computation — no base64
- * handling needed.
+ * Netlify provides the raw body in event.body. isBase64Encoded must be
+ * handled so we always work with a UTF-8 string for HMAC computation.
  */
 
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { getSettings } from './get-settings';
+const crypto                           = require('crypto');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { getSettings } = require('./get-settings');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -54,8 +53,8 @@ function getDb(env) {
 }
 
 /* ── Internal function caller (function-to-function via HTTPS) ── */
-async function callFunction(env, functionName, payload) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return;
@@ -66,7 +65,7 @@ async function callFunction(env, functionName, payload) {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -87,8 +86,8 @@ async function callFunction(env, functionName, payload) {
    mean that work never ran and never got retried, with the order stuck
    showing paid but nothing credited. This retries up to 3 times with a
    short backoff and reports whether it ultimately succeeded. ── */
-async function callFunctionWithRetry(env, functionName, payload, maxAttempts = 3) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunctionWithRetry(functionName, payload, maxAttempts = 3) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) {
     console.warn(`PLATFORM_URL not set — cannot call ${functionName}.`);
     return { success: false, reason: 'PLATFORM_URL not set' };
@@ -102,7 +101,7 @@ async function callFunctionWithRetry(env, functionName, payload, maxAttempts = 3
         method:  'POST',
         headers: {
           'Content-Type':     'application/json',
-          'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+          'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
         },
         body:    JSON.stringify(payload),
       });
@@ -136,7 +135,7 @@ async function callFunctionWithRetry(env, functionName, payload, maxAttempts = 3
    Signed payload: <timestamp> + "." + <rawBody>
    Docs: https://stripe.com/docs/webhooks/signatures
 ══════════════════════════════════════════════════════════════ */
-async function verifyStripeSignature(rawBody, sigHeader, secret) {
+function verifyStripeSignature(rawBody, sigHeader, secret) {
   if (!sigHeader || !secret) return { valid: false, reason: 'Missing signature header or secret.' };
 
   // Parse the header into its components
@@ -168,58 +167,55 @@ async function verifyStripeSignature(rawBody, sigHeader, secret) {
   const signedPayload = `${timestamp}.${rawBody}`;
 
   // Compute the expected HMAC-SHA256
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', keyMaterial, new TextEncoder().encode(signedPayload));
-  const expectedSig = Array.from(new Uint8Array(sigBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const expectedSig = crypto
+    .createHmac('sha256', secret)
+    .update(signedPayload, 'utf8')
+    .digest('hex');
 
   // Check against all v1 signatures (Stripe may send multiple during key rotation)
   for (const receivedSig of v1Sigs) {
-    if (
-      typeof receivedSig === 'string' &&
-      receivedSig.length === expectedSig.length &&
-      timingSafeEqualStr(receivedSig, expectedSig)
-    ) {
-      return { valid: true };
+    try {
+      const receivedBuf = Buffer.from(receivedSig, 'hex');
+      const expectedBuf = Buffer.from(expectedSig, 'hex');
+
+      if (
+        receivedBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(receivedBuf, expectedBuf)
+      ) {
+        return { valid: true };
+      }
+    } catch {
+      // Buffer mismatch (different lengths) — continue checking other sigs
     }
   }
 
   return { valid: false, reason: 'Signature mismatch.' };
 }
 
-// Web Crypto has no direct Node crypto.timingSafeEqual equivalent, so we use a
-// constant-time XOR comparison over character codes instead of Buffer.
-function timingSafeEqualStr(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 /* ══════════════════════════════════════════════════════════════
    HANDLER
 ══════════════════════════════════════════════════════════════ */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async (event) => {
 
   /* ── 1. Accept POST only ── */
-  if (request.method !== 'POST') {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 2. Get raw body as UTF-8 string ── */
-  const rawBody = await request.text();
+  const rawBody = event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf8')
+    : (event.body || '');
 
   /* ── 3. Verify Stripe webhook signature ── */
-  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error('STRIPE_WEBHOOK_SECRET environment variable is not set.');
     return respond(500, { error: 'Webhook not configured.' });
   }
 
-  const sigHeader = request.headers.get('stripe-signature') || request.headers.get('Stripe-Signature') || '';
-  const { valid, reason } = await verifyStripeSignature(rawBody, sigHeader, webhookSecret);
+  const sigHeader = event.headers['stripe-signature'] || event.headers['Stripe-Signature'] || '';
+  const { valid, reason } = verifyStripeSignature(rawBody, sigHeader, webhookSecret);
 
   if (!valid) {
     console.warn(`Stripe webhook signature verification failed: ${reason}`);
@@ -269,7 +265,7 @@ export async function onRequest(context) {
   /* ── 7. Init Firestore ── */
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     // Return 500 so Stripe retries this webhook later
@@ -282,7 +278,7 @@ export async function onRequest(context) {
     const upgradeUid       = session.metadata?.uid           || null;
     const upgradePeriod    = session.metadata?.billingPeriod || 'monthly';
     const upgradeSubId     = session.metadata?.subscriptionId || orderId;
-    await handleProUpgrade({ db, uid: upgradeUid, billingPeriod: upgradePeriod, subscriptionId: upgradeSubId, gateway: 'stripe', amount: confirmedAmount, customerEmail, env });
+    await handleProUpgrade({ db, uid: upgradeUid, billingPeriod: upgradePeriod, subscriptionId: upgradeSubId, gateway: 'stripe', amount: confirmedAmount, customerEmail });
     return respond(200, { received: true });
   }
 
@@ -334,7 +330,6 @@ export async function onRequest(context) {
         sessionId,
         paymentMethod:  'stripe',
         paystackRef:    null,
-        env,
       });
       return respond(200, { received: true });
     }
@@ -486,7 +481,7 @@ export async function onRequest(context) {
     // Trigger delivery with the final seller amount (after any affiliate deduction).
     // Uses the retrying caller — this single call credits the seller's balance,
     // increments salesCount, and sends their sale notification.
-    const deliveryDispatch = await callFunctionWithRetry(env, 'deliver-product', { orderId, sellerAmount: finalSellerAmount });
+    const deliveryDispatch = await callFunctionWithRetry('deliver-product', { orderId, sellerAmount: finalSellerAmount });
     if (!deliveryDispatch.success) {
       try {
         await orderRef.update({
@@ -504,7 +499,7 @@ export async function onRequest(context) {
       const productSnap = await db.collection('products').doc(order.productId).get();
       const fbPixelId = productSnap.exists && productSnap.data().integrations && productSnap.data().integrations.facebookPixelId;
       if (fbPixelId) {
-        await callFunction(env, 'pixel-event', {
+        await callFunction('pixel-event', {
           pixelId:   fbPixelId,
           eventName: 'Purchase',
           value:     confirmedAmount,
@@ -676,12 +671,12 @@ export async function onRequest(context) {
     console.warn('Could not fetch user details for notifications:', err.message);
   }
 
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const projectUrl  = `${platformUrl}/dashboard-projects.html?projectId=${encodeURIComponent(orderId)}`;
 
   /* ── 11 + 12. Notify the freelancer: payment received (push + email always) ── */
   if (freelancerUid || freelancerEmail) {
-    await callFunction(env, 'send-smart-notification', {
+    await callFunction('send-smart-notification', {
       userUid:    freelancerUid  || null,
       to:         freelancerEmail || null,
       title:      'Payment Received',
@@ -703,7 +698,7 @@ export async function onRequest(context) {
 
   console.log(`Stripe checkout.session.completed handled successfully for project ${orderId}.`);
   return respond(200, { received: true });
-}
+};
 
 /* ══════════════════════════════════════════════════════════════
    AFFILIATE COMMISSION CREDITING
@@ -885,7 +880,7 @@ async function creditAffiliateCommission({ db, order, orderId, sellerAmount, con
 }
 
 /* ── Pro Upgrade handler (shared logic) ── */
-async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gateway, amount, customerEmail, env }) {
+async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gateway, amount, customerEmail }) {
   if (!uid) {
     console.error('[pro_upgrade] Missing uid in metadata — cannot activate Pro.');
     return;
@@ -903,7 +898,7 @@ async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gatewa
       planStatus:       'active',
       premiumStartDate: now,
       premiumEndDate:   endDate,
-      updatedAt:        FieldValue.serverTimestamp(),
+      updatedAt:        require('firebase-admin/firestore').FieldValue.serverTimestamp(),
     });
 
     // Mark the subscription doc as active
@@ -918,7 +913,7 @@ async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gatewa
     console.log(`[pro_upgrade] uid: ${uid} activated Pro via ${gateway} — expires ${endDate.toISOString()}`);
 
     // Send welcome email
-    const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+    const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
     if (platformUrl) {
       const userSnap = await db.collection('users').doc(uid).get().catch(() => null);
       const userData = userSnap?.exists ? userSnap.data() : {};
@@ -928,7 +923,7 @@ async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gatewa
       if (toEmail) {
         await fetch(`${platformUrl}/.netlify/functions/send-email`, {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+          headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
           body:    JSON.stringify({
             to:   toEmail,
             type: 'premium-activated',
@@ -963,7 +958,7 @@ async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gatewa
       or scheduled-clear-earnings.js when delivery is confirmed)
    6. Notify seller (payment in escrow) and email buyer (escrow confirmation)
 ══════════════════════════════════════════════════════════════ */
-async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, confirmedAmount, confirmedCurrency, sessionId, paymentMethod, paystackRef, env }) {
+async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, confirmedAmount, confirmedCurrency, sessionId, paymentMethod, paystackRef }) {
   // NOTE: the snapshot-level pre-check below is intentionally omitted here.
   // The idempotency guard is enforced INSIDE the transaction (see below) with
   // a fresh re-read, matching the pattern already applied to the NowPayments
@@ -1179,7 +1174,7 @@ async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, 
     console.warn('[invoice-webhook] Could not fetch freelancer details:', err.message);
   }
 
-  const platformUrl   = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl   = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   const invoiceAmount = new Intl.NumberFormat('en', { style: 'currency', currency: confirmedCurrency }).format(confirmedAmount);
 
   let invoiceNumber = '';
@@ -1191,7 +1186,7 @@ async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, 
   }
 
   // Notify seller: payment in escrow
-  await callFunction(env, 'send-smart-notification', {
+  await callFunction('send-smart-notification', {
     userUid:    sellerUid,
     to:         freelancerEmail || null,
     title:      'Payment Held in Escrow',
@@ -1209,7 +1204,7 @@ async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, 
 
   // Email buyer: payment secured in escrow
   if (clientEmail) {
-    await callFunction(env, 'send-email', {
+    await callFunction('send-email', {
       to:     clientEmail,
       toName: clientName,
       type:   'invoice-escrow-held-buyer',
@@ -1225,10 +1220,11 @@ async function handleInvoiceOrderPaid({ db, orderId, invOrderRef, invOrderSnap, 
   console.log(`Invoice order ${orderId} handled successfully — funds in escrow for seller ${sellerUid}.`);
 }
 
-/* ── Utility: build a Workers Response ── */
+/* ── Utility: build a Netlify function response ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json' },
-  });
+    body:    JSON.stringify(body),
+  };
 }

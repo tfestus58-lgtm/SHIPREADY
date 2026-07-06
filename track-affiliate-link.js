@@ -26,19 +26,19 @@
  *   FIREBASE_SERVICE_ACCOUNT — full service account JSON
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
 
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -51,16 +51,14 @@ function getDb(env) {
   return _db;
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') {
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
     return respond(400, { error: 'Invalid JSON body.' });
   }
@@ -79,7 +77,7 @@ export async function onRequest(context) {
 
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('Firebase Admin init failed:', err.message);
     return respond(500, { error: 'Database not available.' });
@@ -93,7 +91,7 @@ export async function onRequest(context) {
   ══════════════════════════════════════ */
   if (action === 'create') {
     /* Caller must be the affiliate they claim to be */
-    const callerUid = await verifyCaller(request, env);
+    const callerUid = await verifyCaller(event, process.env);
     if (!callerUid || callerUid !== affiliateUid) {
       return respond(401, { error: 'Unauthorized. Please log in again.' });
     }
@@ -128,7 +126,7 @@ export async function onRequest(context) {
 
     try {
       const resolvedSlug  = productSlug || product.slug || null;
-      const platformUrl   = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '') || 'https://kreddlo.space';
+      const platformUrl   = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '') || 'https://kreddlo.space';
       // Build the canonical referral URL and persist it — dashboard reads this
       // to let affiliates copy their link without going back to browse.html.
       const refUrl = resolvedSlug
@@ -184,15 +182,16 @@ export async function onRequest(context) {
   }
 
   return respond(200, { success: true });
-  }
+};
 
 /* ── Utility ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }

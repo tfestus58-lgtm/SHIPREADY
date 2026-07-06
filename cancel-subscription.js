@@ -26,17 +26,17 @@
  *   500 — Server/config error
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { verifyCaller }                  from './_verify-auth';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { verifyCaller }                  = require('./_verify-auth');
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -48,27 +48,26 @@ function getDb(env) {
 }
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json' },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  const rawText = await request.text();
-  if (request.method !== 'POST') {
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed.' });
   }
 
   /* ── 1. Auth: verify caller's Firebase ID token ── */
-  const uid = await verifyCaller(request, env);
+  const uid = await verifyCaller(event, process.env);
   if (!uid) {
     return respond(401, { error: 'Authentication required.' });
   }
 
   try {
-    const db = getDb(env);
+    const db = getDb();
 
     /* ── 2. Read the user's current subscription state ── */
     const userRef  = db.collection('users').doc(uid);
@@ -142,4 +141,4 @@ export async function onRequest(context) {
     console.error('[cancel-subscription] Error:', err.message);
     return respond(500, { error: 'An unexpected error occurred. Please try again.' });
   }
-  }
+};

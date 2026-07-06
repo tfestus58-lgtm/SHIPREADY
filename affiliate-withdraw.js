@@ -20,16 +20,17 @@
  *   NOWPAYMENTS_API_KEY       — NOWPayments API key
  */
 
-import { sanitizeString } from './_sanitize';
-import admin from 'firebase-admin';
+const https = require('https');
+const { sanitizeString } = require('./_sanitize');
 
 /* ─── Firebase Admin ────────────────────────────────────────────────────────── */
 let _db   = null;
 let _auth = null;
 
-function getAdmin(env) {
+function getAdmin() {
+  const admin = require('firebase-admin');
   if (!admin.apps.length) {
-    const sa = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     admin.initializeApp({ credential: admin.credential.cert(sa) });
   }
   if (!_db)   _db   = admin.firestore();
@@ -54,19 +55,31 @@ async function getSettings(db) {
 }
 
 /* ─── NOWPayments payout ─────────────────────────────────────────────────────── */
-async function httpsPost(hostname, path, data, headers) {
-  const body = JSON.stringify(data);
-  const res = await fetch(`https://${hostname}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body,
+function httpsPost(hostname, path, data, headers) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(data);
+    const opts = {
+      hostname,
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers,
+      },
+    };
+    const req = https.request(opts, (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch (e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
   });
-  const raw = await res.text();
-  try { return { status: res.status, body: JSON.parse(raw) }; }
-  catch (e) { return { status: res.status, body: raw }; }
 }
 
 /* ─── CoinGecko server-side rate helpers ─────────────────────────────────────
@@ -74,14 +87,25 @@ async function httpsPost(hostname, path, data, headers) {
    payouts use a server-verified exchange rate, not the raw USD dollar figure.
    Both files must be kept in sync if the coin list changes.
 ────────────────────────────────────────────────────────────────────────────── */
-async function httpsGet(hostname, path, headers = {}) {
-  const res = await fetch(`https://${hostname}${path}`, {
-    method: 'GET',
-    headers: { 'Accept': 'application/json', ...headers },
+function httpsGet(hostname, path, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname,
+      path,
+      method: 'GET',
+      headers: { 'Accept': 'application/json', ...headers },
+    };
+    const req = https.request(opts, (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch (e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
   });
-  const raw = await res.text();
-  try { return { status: res.status, body: JSON.parse(raw) }; }
-  catch (e) { return { status: res.status, body: raw }; }
 }
 
 /*
@@ -131,8 +155,8 @@ async function fetchServerExchangeRate(coinId) {
   }
 }
 
-async function sendNowPaymentsPayout(env, walletAddress, coinAmt, nowCurrency, payoutId) {
-  const apiKey = env && env.NOWPAYMENTS_API_KEY;
+async function sendNowPaymentsPayout(walletAddress, coinAmt, nowCurrency, payoutId) {
+  const apiKey = process.env.NOWPAYMENTS_API_KEY;
   if (!apiKey) {
     console.warn('[affiliate-withdraw] NOWPAYMENTS_API_KEY not set — skipping payout call in dev mode');
     return { id: 'dev-mock-' + payoutId };
@@ -142,7 +166,7 @@ async function sendNowPaymentsPayout(env, walletAddress, coinAmt, nowCurrency, p
   // computed by the caller using the same coinMap that create-payout.js uses.
   // coinAmt is already the server-verified coin quantity — NOT a USD figure.
 
-  const payoutWebhookUrl = ((env && (env.PLATFORM_URL || env.URL)) || 'https://kreddlo.space').replace(/\/$/, '')
+  const payoutWebhookUrl = (process.env.PLATFORM_URL || process.env.URL || 'https://kreddlo.space').replace(/\/$/, '')
     + '/.netlify/functions/nowpayments-payout-webhook';
 
   const res = await httpsPost(
@@ -168,45 +192,42 @@ async function sendNowPaymentsPayout(env, walletAddress, coinAmt, nowCurrency, p
 }
 
 /* ─── Handler ────────────────────────────────────────────────────────────────── */
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
+exports.handler = async function(event) {
   const CORS = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS });
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS, body: '' };
   }
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: CORS });
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
-
-  const rawText = await request.text();
 
   try {
     // 1. Auth
-    const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+    const authHeader = event.headers.authorization || event.headers.Authorization || '';
     const idToken    = authHeader.replace(/^Bearer\s+/i, '').trim();
     if (!idToken) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: CORS });
+      return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
 
-    const { db, auth, FieldValue } = getAdmin(env);
+    const { db, auth, FieldValue } = getAdmin();
     let decoded;
     try {
       decoded = await auth.verifyIdToken(idToken);
     } catch (e) {
-      return new Response(JSON.stringify({ error: 'Invalid auth token' }), { status: 401, headers: CORS });
+      return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Invalid auth token' }) };
     }
 
     const uid = decoded.uid;
 
     // 2. Parse body
     let body;
-    try { body = JSON.parse(rawText || '{}'); }
-    catch (e) { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: CORS }); }
+    try { body = JSON.parse(event.body || '{}'); }
+    catch (e) { return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Invalid JSON body' }) }; }
 
     const requestedAmount = parseFloat(body.amount) || 0;
 
@@ -254,26 +275,35 @@ export async function onRequest(context) {
 
     // Minimum withdrawal check is always in USD (the debit currency)
     if (usdDebitAmount < minWd) {
-      return new Response(JSON.stringify({ error: 'Minimum withdrawal is ' + cur + ' ' + minWd.toFixed(2) }), { status: 400, headers: CORS });
+      return {
+        statusCode: 400, headers: CORS,
+        body: JSON.stringify({ error: 'Minimum withdrawal is ' + cur + ' ' + minWd.toFixed(2) }),
+      };
     }
 
     // 4. Fetch user doc
     const userRef  = db.collection('users').doc(uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
-      return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: CORS });
+      return { statusCode: 404, headers: CORS, body: JSON.stringify({ error: 'User not found' }) };
     }
 
     const userData = userSnap.data();
 
     // 5. Gate: affiliateEnabled
     if (userData.affiliateEnabled !== true) {
-      return new Response(JSON.stringify({ error: 'Affiliate program not enabled for this account' }), { status: 403, headers: CORS });
+      return {
+        statusCode: 403, headers: CORS,
+        body: JSON.stringify({ error: 'Affiliate program not enabled for this account' }),
+      };
     }
 
     // 5b. Gate: payoutsFrozen
     if (userData.payoutsFrozen === true) {
-      return new Response(JSON.stringify({ error: 'Withdrawals temporarily paused by platform. Please contact support for assistance.' }), { status: 403, headers: CORS });
+      return {
+        statusCode: 403, headers: CORS,
+        body: JSON.stringify({ error: 'Withdrawals temporarily paused by platform. Please contact support for assistance.' }),
+      };
     }
 
     // 5c. OTP verification gate (FIX) — server-side enforcement of the 2FA
@@ -293,7 +323,10 @@ export async function onRequest(context) {
 
       const OTP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
       if (!userData.withdrawalOtpUsed || !otpVerifiedAt || (Date.now() - otpVerifiedAt.getTime()) > OTP_WINDOW_MS) {
-        return new Response(JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }), { status: 403, headers: CORS });
+        return {
+          statusCode: 403, headers: CORS,
+          body: JSON.stringify({ error: 'Withdrawal requires OTP verification. Please verify your identity and try again.' }),
+        };
       }
     }
 
@@ -302,7 +335,10 @@ export async function onRequest(context) {
     // transaction in step 10 below (see FIX note there).
     const available = Number(userData.affiliateBalance) || 0;
     if (usdDebitAmount > available) {
-      return new Response(JSON.stringify({ error: 'Insufficient affiliate balance. Available: ' + cur + ' ' + available.toFixed(2) }), { status: 400, headers: CORS });
+      return {
+        statusCode: 400, headers: CORS,
+        body: JSON.stringify({ error: 'Insufficient affiliate balance. Available: ' + cur + ' ' + available.toFixed(2) }),
+      };
     }
 
     // 7. Check wallet / bank details based on method
@@ -316,7 +352,10 @@ export async function onRequest(context) {
       const accountNumber = body.accountNumber || null;
       const accountName   = body.accountName   || null;
       if (!bankCode || !accountNumber || !accountName) {
-        return new Response(JSON.stringify({ error: 'Bank details incomplete. Please provide bank, account number, and account name.' }), { status: 400, headers: CORS });
+        return {
+          statusCode: 400, headers: CORS,
+          body: JSON.stringify({ error: 'Bank details incomplete. Please provide bank, account number, and account name.' }),
+        };
       }
       bankPayload = {
         bankCode,
@@ -327,7 +366,10 @@ export async function onRequest(context) {
     } else {
       walletAddress = userData.walletAddress ? sanitizeString(userData.walletAddress, 200) : null;
       if (!walletAddress) {
-        return new Response(JSON.stringify({ error: 'No withdrawal wallet set. Add one in Settings.' }), { status: 400, headers: CORS });
+        return {
+          statusCode: 400, headers: CORS,
+          body: JSON.stringify({ error: 'No withdrawal wallet set. Add one in Settings.' }),
+        };
       }
     }
 
@@ -479,7 +521,7 @@ export async function onRequest(context) {
       // so there is no 'pending' doc to mark as 'failed' here — nothing to clean up.
       // The transaction rolled back automatically, so the user's balance was never deducted.
       const sc = txErr.statusCode || 500;
-      return new Response(JSON.stringify({ error: txErr.message }), { status: sc, headers: CORS });
+      return { statusCode: sc, headers: CORS, body: JSON.stringify({ error: txErr.message }) };
     }
 
     // 9b. Issue 5 fix: create the payout doc NOW — after the transaction has
@@ -530,10 +572,11 @@ export async function onRequest(context) {
       } catch (refundErr) {
         console.error('[affiliate-withdraw] CRITICAL: compensating refund also failed after doc creation error for uid ' + uid + ':', refundErr.message);
       }
-      return new Response(
-        JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }),
-        { status: 500, headers: CORS }
-      );
+      return {
+        statusCode: 500,
+        headers:    CORS,
+        body:       JSON.stringify({ error: 'Internal error creating payout record. Your balance has been refunded. Please request a new OTP verification and try again.' }),
+      };
     }
 
     // 11. Trigger payout via appropriate provider
@@ -547,7 +590,7 @@ export async function onRequest(context) {
         // and convert natively to payoutCurrency if they differ. This must
         // match what was debited from affiliateBalance above — no separate
         // client-supplied rate is ever used here.
-        const fwKey = env.FLW_SECRET_KEY;
+        const fwKey = process.env.FLW_SECRET_KEY;
         if (fwKey) {
           const fwRes = await httpsPost(
             'api.flutterwave.com',
@@ -619,7 +662,7 @@ export async function onRequest(context) {
           coinAmount:     coinAmt,
         });
 
-        const npRes   = await sendNowPaymentsPayout(env, walletAddress, coinAmt, nowCurrency, payoutId);
+        const npRes   = await sendNowPaymentsPayout(walletAddress, coinAmt, nowCurrency, payoutId);
         nowPaymentsId = npRes.id || null;
         await payoutRef.update({ nowPaymentsId, status: 'processing' });
       }
@@ -650,10 +693,11 @@ export async function onRequest(context) {
         failedAt: new Date(),
       }).catch(() => {});
 
-      return new Response(
-        JSON.stringify({ error: 'Payout gateway failed. Your balance has been refunded. Please request a new OTP verification and try again.' }),
-        { status: 502, headers: { ...CORS, 'Content-Type': 'application/json' } }
-      );
+      return {
+        statusCode: 502,
+        headers:    { ...CORS, 'Content-Type': 'application/json' },
+        body:       JSON.stringify({ error: 'Payout gateway failed. Your balance has been refunded. Please request a new OTP verification and try again.' }),
+      };
     }
 
     // 12. Mark pending earnings in the matching bucket as paid (best-effort, non-fatal).
@@ -677,8 +721,10 @@ export async function onRequest(context) {
       console.warn('[affiliate-withdraw] Could not mark earnings as paid:', batchErr.message);
     }
 
-    return new Response(
-      JSON.stringify({
+    return {
+      statusCode: 200,
+      headers:    { ...CORS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         ok:           true,
         payoutId,
         grossAmount,
@@ -688,14 +734,14 @@ export async function onRequest(context) {
         nowPaymentsId,
         flutterwaveId,
       }),
-      { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
-    );
+    };
 
   } catch (err) {
     console.error('[affiliate-withdraw] Unhandled error:', err);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status:  500,
-      headers: CORS,
-    });
+    return {
+      statusCode: 500,
+      headers:    CORS,
+      body:       JSON.stringify({ error: 'Internal server error' }),
+    };
   }
-  }
+};

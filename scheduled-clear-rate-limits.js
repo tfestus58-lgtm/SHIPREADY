@@ -22,17 +22,17 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, Timestamp }       from 'firebase-admin/firestore';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, Timestamp }       = require('firebase-admin/firestore');
 
 /* ── Firebase Admin singleton ── */
 let _db = null;
 
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
   try {
-    serviceAccount = JSON.parse((env && env.FIREBASE_SERVICE_ACCOUNT) || '{}');
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   } catch {
     throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
   }
@@ -47,16 +47,13 @@ function getDb(env) {
 // Firestore write quota in a single run. Anything left over is caught next hour.
 const BATCH_SIZE = 400;
 
-// NOTE: Cloudflare Pages Functions have no Cron Trigger mechanism, so
-// this scheduled() handler is preserved here as a plain export but is
-// NOT currently invoked by anything on Pages. See migration notes.
-export async function scheduled(event, env, ctx) {
+exports.handler = async function () {
   let db;
   try {
-    db = getDb(env);
+    db = getDb();
   } catch (err) {
     console.error('[scheduled-clear-rate-limits] Firebase Admin init failed:', err.message);
-    return;
+    return { statusCode: 500, body: JSON.stringify({ error: 'Internal configuration error.' }) };
   }
 
   const now = Timestamp.now();
@@ -74,7 +71,7 @@ export async function scheduled(event, env, ctx) {
 
     if (snap.empty) {
       console.log('[scheduled-clear-rate-limits] No expired rate-limit docs found.');
-      return;
+      return { statusCode: 200, body: JSON.stringify({ deleted: 0 }) };
     }
 
     // Batch delete — Firestore batch max is 500 writes; BATCH_SIZE=400 is safe.
@@ -89,10 +86,8 @@ export async function scheduled(event, env, ctx) {
     errors++;
   }
 
-  console.log(`[scheduled-clear-rate-limits] Run complete — deleted: ${totalDeleted}, errors: ${errors}`);
-  }
-
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-    return new Response('Scheduled function — not callable via HTTP.', { status: 200 });
-  }
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ deleted: totalDeleted, errors }),
+  };
+};

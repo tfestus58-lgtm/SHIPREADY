@@ -16,29 +16,29 @@
  *   PLATFORM_URL
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }     from 'firebase-admin/firestore';
-import { verifyCaller }                 from './_verify-auth';
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+const { verifyCaller }                 = require('./_verify-auth');
+const { randomBytes }                  = require('crypto');
 
 let _db = null;
-function getDb(env) {
+function getDb() {
   if (_db) return _db;
   let serviceAccount;
-  try { serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
+  try { serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
   catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.'); }
   if (!getApps().length) initializeApp({ credential: cert(serviceAccount) });
   _db = getFirestore();
   return _db;
 }
 
-async function callFunction(env, functionName, payload) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(functionName, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) return;
   try {
     const res = await fetch(`${platformUrl}/.netlify/functions/${functionName}`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
       body:    JSON.stringify(payload),
     });
     if (!res.ok) console.warn(`${functionName} returned ${res.status}: ${await res.text()}`);
@@ -56,33 +56,29 @@ async function callFunction(env, functionName, payload) {
  * even further. Now uses crypto.randomBytes for a 256-bit token.
  */
 function makeToken() {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+  return randomBytes(32).toString('hex');
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') return respond(405, { error: 'Method not allowed.' });
 
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) return respond(401, { error: 'Unauthorized. Please log in again.' });
 
-  const rawText = await request.text();
   let body;
-  try { body = JSON.parse(rawText || '{}'); }
+  try { body = JSON.parse(event.body || '{}'); }
   catch { return respond(400, { error: 'Invalid JSON body.' }); }
 
   const { invoiceId } = body;
   if (!invoiceId || typeof invoiceId !== 'string') return respond(400, { error: 'invoiceId is required.' });
 
   let db;
-  try { db = getDb(env); }
+  try { db = getDb(); }
   catch (err) { return respond(500, { error: 'Database not available.' }); }
 
   /* ── Generate a confirmation token for the buyer ── */
   const confirmToken = makeToken();
-  const platformUrl  = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl  = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
 
   /* ── Atomically verify status and update invoice ──
      Issue 10 fix: the pre-fix code read the invoice outside a transaction
@@ -150,7 +146,7 @@ export async function onRequest(context) {
 
   /* ── Email buyer: delivery confirmation link ── */
   if (clientEmail) {
-    await callFunction(env, 'send-email', {
+    await callFunction('send-email', {
       to:     clientEmail,
       toName: clientName,
       type:   'invoice-delivered-buyer',
@@ -165,7 +161,7 @@ export async function onRequest(context) {
 
   /* ── Email seller: delivery submitted confirmation ── */
   if (freelancerEmail) {
-    await callFunction(env, 'send-email', {
+    await callFunction('send-email', {
       to:     freelancerEmail,
       toName: freelancerName,
       type:   'invoice-delivered-seller',
@@ -178,11 +174,12 @@ export async function onRequest(context) {
   }
 
   return respond(200, { success: true, message: 'Invoice marked as delivered. The client has been notified to confirm.' });
-}
+};
 
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  });
+    body: JSON.stringify(body),
+  };
 }

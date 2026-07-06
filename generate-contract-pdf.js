@@ -27,7 +27,7 @@
 // Returns:
 //   application/pdf binary (always)
 
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
 
 // ── Colour helpers (pdf-lib uses 0-1 RGB) ────────────────────────
 const NAVY  = rgb(0.051, 0.129, 0.271);   // #0d2145
@@ -119,14 +119,14 @@ function label(page, text, x, y, font, size = 7) {
 }
 
 // ── Core PDF generation logic ─────────────────────────────────────
-// Extracted from the HTTP handler below so it can be called directly,
-// in-process, by other functions (e.g. download-contract.js) without
-// going through require()/fetch — same logic, byte-for-byte, just
-// callable as a plain async function that returns the PDF Uint8Array.
+// Extracted so it can be called directly, in-process, by other
+// functions (e.g. download-contract.js) — same logic, byte-for-byte,
+// just callable as a plain async function that returns the PDF bytes
+// as a Buffer (Node.js).
 //
 // @param {object} params — same fields previously read from the POST body
-// @returns {Promise<Uint8Array>} raw PDF bytes
-export async function generatePdf(params) {
+// @returns {Promise<Buffer>} raw PDF bytes
+async function generatePdf(params) {
   const {
     projectId            = '',
     projectTitle         = 'Untitled Project',
@@ -164,18 +164,14 @@ export async function generatePdf(params) {
 
     if (freelancerSignature) {
       try {
-        const sigBinary = atob(freelancerSignature);
-        const sigBytes  = new Uint8Array(sigBinary.length);
-        for (let i = 0; i < sigBinary.length; i++) sigBytes[i] = sigBinary.charCodeAt(i);
+        const sigBytes = Buffer.from(freelancerSignature, 'base64');
         freelancerSigImg = await pdfDoc.embedPng(sigBytes);
       } catch (_) { /* signature image invalid — skip, show text fallback */ }
     }
 
     if (buyerSignature) {
       try {
-        const sigBinary = atob(buyerSignature);
-        const sigBytes  = new Uint8Array(sigBinary.length);
-        for (let i = 0; i < sigBinary.length; i++) sigBytes[i] = sigBinary.charCodeAt(i);
+        const sigBytes = Buffer.from(buyerSignature, 'base64');
         buyerSigImg = await pdfDoc.embedPng(sigBytes);
       } catch (_) { /* skip */ }
     }
@@ -448,43 +444,45 @@ export async function generatePdf(params) {
 
     // ── Serialise ────────────────────────────────────────────────
     const pdfBytes = await pdfDoc.save();
-    return pdfBytes;
+    return Buffer.from(pdfBytes);
   }
 }
 
 // ── Main handler ─────────────────────────────────────────────────
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const rawText = await request.text();
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
-    return new Response('Invalid JSON', { status: 400 });
+    return { statusCode: 400, body: 'Invalid JSON' };
   }
 
   try {
     const pdfBytes = await generatePdf(body);
 
     // Always return the raw PDF binary
-    return new Response(pdfBytes, {
-      status: 200,
+    return {
+      statusCode: 200,
       headers: {
         'Content-Type':        'application/pdf',
         'Content-Disposition': `attachment; filename="kreddlo-service-agreement.pdf"`,
         'Content-Length':      pdfBytes.length.toString(),
       },
-    });
+      body:            pdfBytes.toString('base64'),
+      isBase64Encoded: true,
+    };
 
   } catch (err) {
     console.error('generate-contract-pdf error:', err);
-    return new Response(JSON.stringify({ error: err.message || 'PDF generation failed' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message || 'PDF generation failed' }),
+    };
   }
-}
+};
+
+module.exports.generatePdf = generatePdf;

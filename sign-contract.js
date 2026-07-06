@@ -16,29 +16,26 @@
 // Returns:
 //   { ok: true, bothSigned: bool, contractPdfUrl: string|null }
 
-import admin from 'firebase-admin';
-import { verifyCaller } from './_verify-auth';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// Cloudflare Workers provides fetch() natively as a global — the Netlify-era
-// node-fetch dynamic-import shim is no longer needed (node-fetch is not even
-// a project dependency; see package.json).
-// Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
-import { sanitizeString } from './_sanitize';
-import generateContractPdfModule from './generate-contract-pdf';
+const admin      = require('firebase-admin');
+const { verifyCaller } = require('./_verify-auth');
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fetch      = (...args) => import('node-fetch').then(m => m.default(...args));
+const { createHash } = require('crypto');
+const { sanitizeString } = require('./_sanitize');
 
 // ── Firebase Admin (singleton) ────────────────────────────────────
-function getAdmin(env) {
+function getAdmin() {
   if (admin.apps.length) return admin;
-  const svc = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  const svc = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({ credential: admin.credential.cert(svc) });
   return admin;
 }
 
 // ── Upload buffer to Cloudinary ───────────────────────────────────
-async function uploadToCloudinary(pdfBuffer, publicId, env) {
-  const cloudName = env.CLOUDINARY_CLOUD_NAME;
-  const apiKey    = env.CLOUDINARY_API_KEY;
-  const apiSecret = env.CLOUDINARY_API_SECRET;
+async function uploadToCloudinary(pdfBuffer, publicId) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey    = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
   if (!cloudName || !apiKey || !apiSecret) {
     throw new Error('Cloudinary env vars not configured');
@@ -47,8 +44,7 @@ async function uploadToCloudinary(pdfBuffer, publicId, env) {
   const timestamp = Math.floor(Date.now() / 1000);
   const folder    = 'kreddlo-contracts';
   const sigStr    = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-  const sigHashBuffer = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(sigStr));
-  const signature = Array.from(new Uint8Array(sigHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const signature = createHash('sha1').update(sigStr).digest('hex');
 
   const formData  = new FormData();
   const blob      = new Blob([pdfBuffer], { type: 'application/pdf' });
@@ -74,14 +70,15 @@ async function uploadToCloudinary(pdfBuffer, publicId, env) {
 }
 
 // ── Generate PDF bytes by calling generate-contract-pdf internally ─
-// We call the sibling module's fetch handler directly (same isolate) to
-// avoid an extra HTTP round-trip. This mirrors the old Netlify pattern of
-// require()'ing the handler module directly and invoking it in-process —
-// the Workers equivalent is invoking its export default { fetch } with a
-// real Request object.
-async function buildPdf(contractData, contractId, env, ctx) {
-  const fakeRequest = new Request('https://internal.kreddlo/generate-contract-pdf', {
-    method: 'POST',
+// We call the function's handler directly (same process) to avoid an
+// extra HTTP round-trip. We require() the handler module directly.
+async function buildPdf(contractData, contractId) {
+  // Inline minimal PDF generation using the same logic as generate-contract-pdf
+  // but only the fields we have. This avoids needing an HTTP call to itself.
+  const handler = require('./generate-contract-pdf');
+
+  const fakeEvent = {
+    httpMethod: 'POST',
     body: JSON.stringify({
       projectId:           contractId,
       projectTitle:        contractData.title || contractData.projectTitle || 'Service Agreement',
@@ -115,30 +112,28 @@ async function buildPdf(contractData, contractId, env, ctx) {
                            }),
       preview: true,
     }),
-  });
+  };
 
-  const result = await generateContractPdfModule.fetch(fakeRequest, env, ctx);
+  const result = await handler.handler(fakeEvent);
 
-  if (result.status !== 200) {
-    throw new Error('PDF generation failed: ' + await result.text());
+  if (result.statusCode !== 200) {
+    throw new Error('PDF generation failed: ' + result.body);
   }
 
-  // generate-contract-pdf.js now returns the raw PDF binary directly
-  // (no more base64/isBase64Encoded wrapping).
-  const arrayBuffer = await result.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  // result.body is base64-encoded when isBase64Encoded=true
+  return Buffer.from(result.body, 'base64');
 }
 
 // ── Internal function caller ──────────────────────────────────────
-async function callFunction(env, name, payload) {
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+async function callFunction(name, payload) {
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   if (!platformUrl) { console.warn(`PLATFORM_URL not set — cannot call ${name}.`); return; }
   try {
     const res = await fetch(`${platformUrl}/.netlify/functions/${name}`, {
       method:  'POST',
       headers: {
         'Content-Type':     'application/json',
-        'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '',
+        'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '',
       },
       body:    JSON.stringify(payload),
     });
@@ -149,26 +144,22 @@ async function callFunction(env, name, payload) {
 }
 
 // ── Main handler ──────────────────────────────────────────────────
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   /* ── Verify caller identity ── */
-  const callerUid = await verifyCaller(request, env);
+  const callerUid = await verifyCaller(event, process.env);
   if (!callerUid) {
-    return new Response(JSON.stringify({ error: 'Unauthorized. Please log in again.' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
-    });
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized. Please log in again.' }) };
   }
 
-  const rawText = await request.text();
   let body;
   try {
-    body = JSON.parse(rawText || '{}');
+    body = JSON.parse(event.body || '{}');
   } catch {
-    return new Response('Invalid JSON', { status: 400 });
+    return { statusCode: 400, body: 'Invalid JSON' };
   }
 
   const { contractId, role, signature = '', ip = '' } = body;
@@ -179,27 +170,21 @@ export async function onRequest(context) {
   // ip is server-side-derived or discarded in favor of event headers below.
 
   if (!contractId || !role) {
-    return new Response(JSON.stringify({ error: 'contractId and role are required' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    });
+    return { statusCode: 400, body: JSON.stringify({ error: 'contractId and role are required' }) };
   }
   if (role !== 'freelancer' && role !== 'buyer') {
-    return new Response(JSON.stringify({ error: 'role must be freelancer or buyer' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    });
+    return { statusCode: 400, body: JSON.stringify({ error: 'role must be freelancer or buyer' }) };
   }
 
   try {
-    const db  = getAdmin(env).firestore();
+    const db  = getAdmin().firestore();
     // Fix #9: use `projects` collection — this is where create-project.js writes.
     // The orphaned `contracts` collection was never populated by any create path.
     const ref = db.collection('projects').doc(contractId);
     const snap = await ref.get();
 
     if (!snap.exists) {
-      return new Response(JSON.stringify({ error: 'Contract not found' }), {
-        status: 404, headers: { 'Content-Type': 'application/json' },
-      });
+      return { statusCode: 404, body: JSON.stringify({ error: 'Contract not found' }) };
     }
 
     const data = snap.data();
@@ -214,9 +199,10 @@ export async function onRequest(context) {
        raise-dispute.js (project.buyerUid === raisedBy). */
     const expectedUid = role === 'freelancer' ? data.freelancerUid : data.buyerUid;
     if (!expectedUid || expectedUid !== callerUid) {
-      return new Response(JSON.stringify({ error: 'You are not authorised to sign this contract as ' + role + '.' }), {
-        status: 403, headers: { 'Content-Type': 'application/json' },
-      });
+      return {
+        statusCode: 403,
+        body: JSON.stringify({ error: 'You are not authorised to sign this contract as ' + role + '.' }),
+      };
     }
 
     // Determine which fields to update
@@ -227,29 +213,32 @@ export async function onRequest(context) {
       /* KYC guard — freelancer must be verified to sign a contract */
       const freelancerUserSnap = await db.collection('users').doc(callerUid).get();
       if (!freelancerUserSnap.exists || freelancerUserSnap.data().kycStatus !== 'verified') {
-        return new Response(JSON.stringify({ error: 'Your identity must be verified before you can sign contracts.' }), {
-          status: 403, headers: { 'Content-Type': 'application/json' },
-        });
+        return {
+          statusCode: 403,
+          body: JSON.stringify({ error: 'Your identity must be verified before you can sign contracts.' }),
+        };
       }
 
       if (data.freelancerSigned) {
-        return new Response(JSON.stringify({ error: 'Already signed as freelancer' }), {
-          status: 409, headers: { 'Content-Type': 'application/json' },
-        });
+        return {
+          statusCode: 409,
+          body: JSON.stringify({ error: 'Already signed as freelancer' }),
+        };
       }
       updates.freelancerSigned    = true;
       updates.freelancerSignedAt  = now;
-      updates.freelancerIp        = ip || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || '';
+      updates.freelancerIp        = ip || (event.headers['x-forwarded-for'] || '').split(',')[0].trim() || '';
       if (signature) updates.freelancerSignature = signature;
     } else {
       if (data.buyerSigned) {
-        return new Response(JSON.stringify({ error: 'Already signed as buyer' }), {
-          status: 409, headers: { 'Content-Type': 'application/json' },
-        });
+        return {
+          statusCode: 409,
+          body: JSON.stringify({ error: 'Already signed as buyer' }),
+        };
       }
       updates.buyerSigned   = true;
       updates.buyerSignedAt = now;
-      updates.buyerIp       = ip || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || '';
+      updates.buyerIp       = ip || (event.headers['x-forwarded-for'] || '').split(',')[0].trim() || '';
       if (signature) updates.buyerSignature = signature;
     }
 
@@ -273,11 +262,11 @@ export async function onRequest(context) {
       if (role === 'buyer'      && signature) freshData.buyerSignature      = signature;
 
       // Generate PDF
-      const pdfBuffer = await buildPdf(freshData, contractId, env, ctx);
+      const pdfBuffer = await buildPdf(freshData, contractId);
 
       // Upload to Cloudinary
       const publicId  = `contract-${contractId}-${Date.now()}`;
-      contractPdfUrl  = await uploadToCloudinary(pdfBuffer, publicId, env);
+      contractPdfUrl  = await uploadToCloudinary(pdfBuffer, publicId);
 
       // Persist URL + flip status to active + unlock payment button
       await ref.update({
@@ -292,7 +281,7 @@ export async function onRequest(context) {
 
     /* ── Notify the other party ── */
     try {
-      const platformUrl  = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+      const platformUrl  = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
       const contractUrl  = `${platformUrl}/dashboard-contracts.html`;
       const contractTitle = data.title || 'Contract';
 
@@ -304,7 +293,7 @@ export async function onRequest(context) {
         ];
         for (const party of notifyUids) {
           if (!party.uid) continue;
-          await callFunction(env, 'send-smart-notification', {
+          await callFunction('send-smart-notification', {
             userUid:    party.uid,
             title:      'Contract Now Active',
             body:       `"${contractTitle}" has been signed by both parties and is now active.`,
@@ -319,7 +308,7 @@ export async function onRequest(context) {
         const otherUid  = role === 'freelancer' ? data.buyerUid      : data.freelancerUid;
         const signerName = role === 'freelancer' ? (data.freelancerName || 'The freelancer') : (data.buyerName || 'The client');
         if (otherUid) {
-          await callFunction(env, 'send-smart-notification', {
+          await callFunction('send-smart-notification', {
             userUid:    otherUid,
             title:      'Signature Required',
             body:       `${signerName} has signed "${contractTitle}". Your signature is needed to activate it.`,
@@ -335,14 +324,17 @@ export async function onRequest(context) {
       console.warn('[sign-contract] notification error:', notifErr.message);
     }
 
-    return new Response(JSON.stringify({ ok: true, bothSigned, contractPdfUrl }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ok: true, bothSigned, contractPdfUrl }),
+    };
 
   } catch (err) {
     console.error('[sign-contract]', err);
-    return new Response(JSON.stringify({ error: err.message || 'Signing failed' }), {
-      status: 500, headers: { 'Content-Type': 'application/json' },
-    });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message || 'Signing failed' }),
+    };
   }
-}
+};

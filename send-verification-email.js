@@ -4,14 +4,14 @@
 
 'use strict';
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue }      from 'firebase-admin/firestore';
-import { checkRateLimit }                from './_rate-limit';
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue }      = require('firebase-admin/firestore');
+const { checkRateLimit }                = require('./_rate-limit');
 
 /* ── Firebase Admin init (shared pattern across all functions) ── */
-function getDb(env) {
+function getDb() {
   if (!getApps().length) {
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     initializeApp({ credential: cert(sa) });
   }
   return getFirestore();
@@ -19,32 +19,29 @@ function getDb(env) {
 
 /* ── Generate a cryptographically random 6-digit code ── */
 function generateCode() {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  const code = 100000 + (array[0] % 900000);
-  return String(code);
+  const { randomInt } = require('crypto');
+  return String(randomInt(100000, 999999));
 }
 
 /* ── CORS / preflight ── */
 function respond(statusCode, body) {
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  return {
+    statusCode,
     headers: {
       'Content-Type':                'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(body),
+  };
 }
 
-export async function onRequest(context) {
-  const { request, env, ctx } = context;
-  if (request.method === 'OPTIONS') return respond(200, {});
-  if (request.method !== 'POST')    return respond(405, { error: 'Method not allowed.' });
+exports.handler = async function(event) {
+  if (event.httpMethod === 'OPTIONS') return respond(200, {});
+  if (event.httpMethod !== 'POST')    return respond(405, { error: 'Method not allowed.' });
 
-  const rawText = await request.text();
   let uid;
   try {
-    ({ uid } = JSON.parse(rawText || '{}'));
+    ({ uid } = JSON.parse(event.body || '{}'));
   } catch {
     return respond(400, { error: 'Invalid request body.' });
   }
@@ -54,7 +51,7 @@ export async function onRequest(context) {
   /* ── Get user from Firestore ── */
   let db, userSnap;
   try {
-    db       = getDb(env);
+    db       = getDb();
 
     /* ── Server-side rate limit: 5 sends per 10 minutes per uid ──
        Guards against email-send spam / OTP enumeration. The existing
@@ -109,11 +106,11 @@ export async function onRequest(context) {
   }
 
   /* ── Send email via send-email function ── */
-  const platformUrl = (env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
+  const platformUrl = (process.env.PLATFORM_URL || 'https://kreddlo.space').replace(/\/$/, '');
   try {
     const emailRes = await fetch(`${platformUrl}/.netlify/functions/send-email`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_FUNCTION_SECRET || '' },
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_FUNCTION_SECRET || '' },
       body:    JSON.stringify({
         to:         user.email,
         templateId: 'email-verification',
@@ -134,4 +131,4 @@ export async function onRequest(context) {
 
   console.log(`[send-verification-email] Code sent to uid ${uid} at ${user.email}`);
   return respond(200, { success: true });
-}
+};

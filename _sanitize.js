@@ -5,7 +5,7 @@
  * written to Firestore or forwarded to external APIs (email, Cloudinary, etc.).
  *
  * Usage:
- *   import { sanitizeString, sanitizeEmail, sanitizeUrl, sanitizeInt, sanitizeObject } from './_sanitize';
+ *   const { sanitizeString, sanitizeEmail, sanitizeUrl, sanitizeInt, sanitizeObject } = require('./_sanitize');
  *
  * What is sanitized: free-text user input — display names, emails, notes,
  *   messages, descriptions, wallet addresses, bank details, review text, etc.
@@ -14,7 +14,7 @@
  *   payment method), numeric amounts, booleans, server-generated timestamps.
  *   Those are validated by type-check guards in each function, not here.
  *
- * No new npm dependencies — pure ES module, no Node.js built-ins required.
+ * No new npm dependencies — plain Node.js require()-able module.
  * No changes to any existing function signatures or HTML pages.
  */
 
