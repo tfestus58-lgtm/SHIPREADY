@@ -45,8 +45,6 @@ const { verifyCaller }                 = require('./_verify-auth');
 const { sanitizeString, sanitizeUrl }  = require('./_sanitize');
 const { getSettings }                  = require('./get-settings');
 
-const DAILY_CREDIT_ALLOWANCE = 10;
-
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
@@ -133,7 +131,19 @@ exports.handler = async (event) => {
       return respond(403, { error: 'Complete identity verification before submitting Pitches.' });
     }
 
-    /* ── 4. Daily credit check — reset if the window has rolled over ── */
+    /* ── 4. Load platform settings first — needed for both the daily
+       allowance (is it enabled? what's the amount?) and the per-Pitch
+       credit cost, admin-configurable in admin.html under "Kreddlo
+       Credits". Falls back to sane defaults if Firestore is unreachable. ── */
+    const settings        = await getSettings(db);
+    const dailyFreeEnabled = settings.dailyFreeCreditsEnabled !== false; // default true
+    const dailyAllowance   = Number(settings.dailyFreeCreditsAmount) > 0 ? Number(settings.dailyFreeCreditsAmount) : 10;
+    const creditCost       = Number(settings.creditsPerPitch) >= 1 ? Math.floor(Number(settings.creditsPerPitch)) : 2;
+
+    /* ── 4a. Daily credit check — reset if the window has rolled over.
+       If the admin has disabled daily free credits, the reset grants 0
+       instead of the allowance, so freelancers fall straight through to
+       purchasedCredits. ── */
     const todayMidnight = todayUtcMidnight();
     let dailyCredits     = Number(userData.dailyCredits);
     let purchasedCredits = Number(userData.purchasedCredits) || 0;
@@ -145,7 +155,7 @@ exports.handler = async (event) => {
 
     let needsReset = !creditsResetAt || isNaN(creditsResetAt.getTime()) || creditsResetAt < todayMidnight;
     if (needsReset || !Number.isFinite(dailyCredits) || dailyCredits < 0) {
-      dailyCredits   = DAILY_CREDIT_ALLOWANCE;
+      dailyCredits   = dailyFreeEnabled ? dailyAllowance : 0;
       creditsResetAt = todayMidnight;
     }
 
@@ -153,7 +163,6 @@ exports.handler = async (event) => {
        at this same point-of-use, once per calendar month, the same way the
        daily allowance is reset above. Added to purchasedCredits so it never
        expires and is spent after the daily allowance runs out. ── */
-    const settings = await getSettings(db);
     let monthlyCreditsGrantedAt = userData.monthlyCreditsGrantedAt || null;
     let monthlyGrantApplied = false;
     if (settings.monthlyFreeCreditEnabled && Number(settings.monthlyFreeCreditAmount) > 0) {
@@ -166,7 +175,8 @@ exports.handler = async (event) => {
       }
     }
 
-    if (dailyCredits <= 0 && purchasedCredits <= 0) {
+    const totalAvailable = dailyCredits + purchasedCredits;
+    if (totalAvailable < creditCost) {
       // Persist the reset (if any) and/or the monthly grant (if any) even
       // when blocking, so the UI reflects the correct values on next load.
       if (needsReset || monthlyGrantApplied) {
@@ -179,8 +189,9 @@ exports.handler = async (event) => {
         });
       }
       return respond(402, {
-        error: 'No Kreddlo Credits remaining. Purchase more to continue pitching.',
-        creditsRemaining: 0,
+        error: 'Not enough Kreddlo Credits. Submitting a Pitch costs ' + creditCost + ' Credit' + (creditCost !== 1 ? 's' : '') + '. Purchase more to continue.',
+        creditsRemaining: totalAvailable,
+        creditCost,
       });
     }
 
@@ -247,22 +258,104 @@ exports.handler = async (event) => {
       safePortfolioLink = cleaned;
     }
 
-    /* ── 8. Deduct 1 credit — daily first, then purchased ── */
-    let newDailyCredits     = dailyCredits;
-    let newPurchasedCredits = purchasedCredits;
-    if (newDailyCredits > 0) {
-      newDailyCredits -= 1;
-    } else {
-      newPurchasedCredits -= 1;
+    /* ── 8. Deduct 1 credit — daily first, then purchased.
+       Wrapped in a Firestore transaction with a FRESH re-read of the user
+       doc, mirroring the transaction pattern already used for balance
+       mutations elsewhere in this codebase (create-bank-payout.js,
+       create-payout.js, scheduled-clear-earnings.js). The pre-check above
+       (step 4) uses the snapshot read at the top of this request purely as
+       a fast-fail for UX — it is NOT the enforcement point. Without this
+       transaction, two concurrent submissions (two tabs, two devices, or a
+       client retry) could both read the same dailyCredits/purchasedCredits
+       values before either write commits, and both succeed — letting a
+       user with 1 credit left submit 2 Pitches, or driving purchasedCredits
+       negative. The transaction re-read closes that window: whichever
+       request commits first wins, and the second sees the already-updated
+       balance. ── */
+    let newDailyCredits, newPurchasedCredits;
+    let outOfCreditsAtCommit = false;
+
+    try {
+      await db.runTransaction(async (tx) => {
+        const freshUserSnap = await tx.get(userRef);
+        if (!freshUserSnap.exists) {
+          throw new Error('Account not found during credit transaction.');
+        }
+        const freshData = freshUserSnap.data();
+
+        let txDailyCredits     = Number(freshData.dailyCredits);
+        let txPurchasedCredits = Number(freshData.purchasedCredits) || 0;
+        if (!Number.isFinite(txPurchasedCredits) || txPurchasedCredits < 0) txPurchasedCredits = 0;
+
+        let txCreditsResetAt = freshData.creditsResetAt
+          ? (freshData.creditsResetAt.toDate ? freshData.creditsResetAt.toDate() : new Date(freshData.creditsResetAt))
+          : null;
+        const txNeedsReset = !txCreditsResetAt || isNaN(txCreditsResetAt.getTime()) || txCreditsResetAt < todayMidnight;
+        if (txNeedsReset || !Number.isFinite(txDailyCredits) || txDailyCredits < 0) {
+          txDailyCredits   = dailyFreeEnabled ? dailyAllowance : 0;
+          txCreditsResetAt = todayMidnight;
+        }
+
+        let txMonthlyCreditsGrantedAt = freshData.monthlyCreditsGrantedAt || null;
+        if (settings.monthlyFreeCreditEnabled && Number(settings.monthlyFreeCreditAmount) > 0) {
+          const nowUtc = new Date();
+          const thisMonthKey = nowUtc.getUTCFullYear() + '-' + String(nowUtc.getUTCMonth() + 1).padStart(2, '0');
+          if (txMonthlyCreditsGrantedAt !== thisMonthKey) {
+            txPurchasedCredits += Number(settings.monthlyFreeCreditAmount);
+            txMonthlyCreditsGrantedAt = thisMonthKey;
+          }
+        }
+
+        // Re-check against the FRESH values — a concurrent request may have
+        // already spent enough credits since the pre-check at step 4.
+        if ((txDailyCredits + txPurchasedCredits) < creditCost) {
+          outOfCreditsAtCommit = true;
+          tx.update(userRef, {
+            dailyCredits:            txDailyCredits,
+            creditsResetAt:          txCreditsResetAt,
+            purchasedCredits:        txPurchasedCredits,
+            monthlyCreditsGrantedAt: txMonthlyCreditsGrantedAt,
+            updatedAt:               FieldValue.serverTimestamp(),
+          });
+          return;
+        }
+
+        // Deduct creditCost credits total — daily allowance first, then
+        // purchased credits cover the remainder.
+        let txRemaining = creditCost;
+        if (txDailyCredits >= txRemaining) {
+          txDailyCredits -= txRemaining;
+          txRemaining = 0;
+        } else {
+          txRemaining -= txDailyCredits;
+          txDailyCredits = 0;
+          txPurchasedCredits = Math.max(0, txPurchasedCredits - txRemaining);
+          txRemaining = 0;
+        }
+
+        newDailyCredits     = txDailyCredits;
+        newPurchasedCredits = txPurchasedCredits;
+
+        tx.update(userRef, {
+          dailyCredits:            txDailyCredits,
+          purchasedCredits:        txPurchasedCredits,
+          creditsResetAt:          txCreditsResetAt,
+          monthlyCreditsGrantedAt: txMonthlyCreditsGrantedAt,
+          updatedAt:               FieldValue.serverTimestamp(),
+        });
+      });
+    } catch (txErr) {
+      console.error('[submit-pitch] Credit transaction failed:', txErr.message);
+      return respond(500, { error: 'Internal server error. Please try again.' });
     }
 
-    await userRef.update({
-      dailyCredits:     newDailyCredits,
-      purchasedCredits: newPurchasedCredits,
-      creditsResetAt,
-      monthlyCreditsGrantedAt,
-      updatedAt:        FieldValue.serverTimestamp(),
-    });
+    if (outOfCreditsAtCommit) {
+      return respond(402, {
+        error: 'Not enough Kreddlo Credits. Submitting a Pitch costs ' + creditCost + ' Credit' + (creditCost !== 1 ? 's' : '') + '. Purchase more to continue.',
+        creditsRemaining: 0,
+        creditCost,
+      });
+    }
 
     /* ── 9. Write the pitch document ── */
     const now = FieldValue.serverTimestamp();

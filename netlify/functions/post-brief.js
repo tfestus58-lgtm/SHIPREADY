@@ -40,7 +40,43 @@ const { verifyCaller }                 = require('./_verify-auth');
 const { checkRateLimit }               = require('./_rate-limit');
 const { sanitizeString }               = require('./_sanitize');
 
-const VALID_CATEGORIES = ['Design', 'Development', 'Writing', 'Marketing', 'Video', 'Audio', 'Business', 'Other'];
+const VALID_CATEGORIES = [
+  'Design & Creative',
+  'Development & Tech',
+  'Writing & Translation',
+  'Marketing & Growth',
+  'Video & Animation',
+  'Audio & Music',
+  'Business & Finance',
+  'Data & Analytics',
+  'Legal & Compliance',
+  'Engineering & Architecture',
+  'Sales & CRM',
+  'Admin & Operations',
+  'Customer Support',
+  'Photography',
+  '3D & CAD',
+  'AI & Machine Learning',
+  'Blockchain & Web3',
+  'Cybersecurity',
+  'Education & Training',
+  'Health & Wellness',
+  'Other',
+];
+
+const VALID_EXPERIENCE_LEVELS = ['Entry', 'Intermediate', 'Expert'];
+
+const VALID_DURATIONS = [
+  'Less than a week',
+  '1-2 weeks',
+  '1 month',
+  '1-3 months',
+  '3-6 months',
+  '6+ months',
+  'Ongoing',
+];
+
+const VALID_ENGAGEMENT_TYPES = ['One-time', 'Ongoing', 'Part-time', 'Full-time'];
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
@@ -125,6 +161,7 @@ exports.handler = async (event) => {
 
     /* ── 5. Validate fields ── */
     const { title, description, budgetMin, budgetMax, deadline, category, skills } = body;
+    const { experienceLevel, duration, engagementType, preferredLocation, language, isUrgent, visibility } = body;
 
     if (!title || typeof title !== 'string' || title.trim().length < 5 || title.trim().length > 120) {
       return respond(400, { error: 'Title must be between 5 and 120 characters.' });
@@ -167,10 +204,38 @@ exports.handler = async (event) => {
       }
     }
 
+    if (!experienceLevel || typeof experienceLevel !== 'string' || !VALID_EXPERIENCE_LEVELS.includes(experienceLevel)) {
+      return respond(400, { error: 'experienceLevel must be one of: ' + VALID_EXPERIENCE_LEVELS.join(', ') + '.' });
+    }
+
+    if (!duration || typeof duration !== 'string' || !VALID_DURATIONS.includes(duration)) {
+      return respond(400, { error: 'duration must be one of: ' + VALID_DURATIONS.join(', ') + '.' });
+    }
+
+    if (!engagementType || typeof engagementType !== 'string' || !VALID_ENGAGEMENT_TYPES.includes(engagementType)) {
+      return respond(400, { error: 'engagementType must be one of: ' + VALID_ENGAGEMENT_TYPES.join(', ') + '.' });
+    }
+
+    if (preferredLocation !== undefined && preferredLocation !== null && preferredLocation !== '') {
+      if (typeof preferredLocation !== 'string' || preferredLocation.trim().length > 100) {
+        return respond(400, { error: 'preferredLocation must be a string of at most 100 characters.' });
+      }
+    }
+
+    if (!language || typeof language !== 'string' || language.trim().length < 2 || language.trim().length > 60) {
+      return respond(400, { error: 'language must be between 2 and 60 characters.' });
+    }
+
+    const isUrgentBool = isUrgent === true;
+
+    const visibilityVal = (visibility === 'private') ? 'private' : 'public';
+
     /* ── 6. Sanitize free-text fields ── */
     const safeTitle       = sanitizeString(title, 120);
     const safeDescription = sanitizeString(description, 5000);
     const safeSkills      = skillsArr.map((s) => sanitizeString(s, 40));
+    const safePreferredLocation = preferredLocation ? sanitizeString(preferredLocation, 100) : '';
+    const safeLanguage    = sanitizeString(language, 60);
 
     /* ── 7. Write the brief document ── */
     const now = FieldValue.serverTimestamp();
@@ -182,6 +247,13 @@ exports.handler = async (event) => {
       deadline:     deadline.trim(),
       category:     category,
       skills:       safeSkills,
+      experienceLevel:   experienceLevel,
+      duration:          duration,
+      engagementType:    engagementType,
+      preferredLocation: safePreferredLocation,
+      language:          safeLanguage,
+      isUrgent:          isUrgentBool,
+      visibility:        visibilityVal,
       buyerUid:     callerUid,
       buyerName:    userData.displayName || userData.name || 'Buyer',
       buyerAvatar:  userData.avatarUrl || '',

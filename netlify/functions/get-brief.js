@@ -105,6 +105,13 @@ exports.handler = async (event) => {
       buyerAvatar:  data.buyerAvatar || '',
       status:       data.status      || 'open',
       pitchCount:   data.pitchCount   || 0,
+      visibility:        data.visibility        || 'public',
+      experienceLevel:   data.experienceLevel    || '',
+      duration:          data.duration           || '',
+      engagementType:    data.engagementType     || '',
+      preferredLocation: data.preferredLocation  || '',
+      language:          data.language           || '',
+      isUrgent:          data.isUrgent === true,
       createdAt:    data.createdAt    || null,
       updatedAt:    data.updatedAt    || null,
     };

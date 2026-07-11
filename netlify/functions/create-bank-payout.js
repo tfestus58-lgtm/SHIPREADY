@@ -99,11 +99,17 @@ const FLW_BASE = 'https://api.flutterwave.com/v3';
 const FLW_TRANSFER_CURRENCIES = [
   'NGN', 'GHS', 'KES', 'UGX', 'TZS', 'RWF',
   'ZAR', 'XOF', 'XAF', 'MWK', 'ZMW',
-  'SLL', 'EGP', // Issue 1 fix: Sierra Leone and Egypt are supported by Flutterwave
-                // — they were in the frontend FLW_SUPPORTED list and get-bank-list.js
-                // COUNTRY_TO_FLW map but were missing here, causing all SLL/EGP
-                // withdrawals to silently fall to pending_manual instead of being
-                // sent automatically via Flutterwave.
+  'ETB', // Ethiopia — ETB is wired into get-bank-list.js's COUNTRY_TO_FLW map,
+         // CURRENCY_TO_COUNTRY below, and the frontend's FLW_SUPPORTED list on
+         // dashboard-withdraw.html, and Flutterwave does support ETB bank
+         // transfers, so it's kept here as an automated route.
+  // Issue 3 fix: SLL (Sierra Leone) and EGP (Egypt) were removed from this
+  // array — confirmed Flutterwave does NOT actually support payout to
+  // Egypt, and SLL conversion is not supported either, despite both being
+  // present in get-bank-list.js's COUNTRY_TO_FLW map and the frontend's
+  // FLW_SUPPORTED list at the time. Both currencies (and their country
+  // entries) have been removed everywhere across the payout pipeline —
+  // backend routing, bank lookup, and the withdraw page UI — not just here.
 ];
 
 /**
@@ -152,8 +158,8 @@ const CURRENCY_TO_COUNTRY = {
   MWK: 'MW',
   ZMW: 'ZM',
   ETB: 'ET',   // Ethiopia
-  SLL: 'SL',   // Issue 1 fix: Sierra Leone — matches COUNTRY_TO_FLW in get-bank-list.js
-  EGP: 'EG',   // Issue 1 fix: Egypt       — matches COUNTRY_TO_FLW in get-bank-list.js
+  // Issue 3 fix: SLL (Sierra Leone) and EGP (Egypt) removed — Flutterwave
+  // does not actually support payout to these, per confirmed testing.
 };
 
 /**
@@ -226,6 +232,188 @@ async function getFlutterwaveEquivalentAmount(flwKey, { amount, currency, target
 
   // Round to 2dp — every currency in our FLW_TRANSFER_CURRENCIES list uses 2 decimal places.
   return Math.round(Number(data.data.source.amount) * 100) / 100;
+}
+
+/**
+ * Ask Flutterwave what fee they will actually charge for a transfer of
+ * `amount` in `currency`. Read-only quote — no money moves.
+ *
+ * Docs: GET /v3/transfers/fee?amount=&currency=
+ *   Returns: { status, message, data: [ { currency, fee_type, fee } ] }
+ *
+ * IMPORTANT — known gap, not yet resolved: Flutterwave's own transfer
+ * confirmation screen (see the fee/VAT breakdown Kay screenshotted, e.g.
+ * "fee of GHS 10.00 and VAT of GHS 0.75") shows fee and VAT as two separate
+ * numbers. This endpoint's public documentation only confirms a single
+ * `fee` field — it is NOT yet confirmed whether that number already
+ * includes VAT, or whether VAT is a separate charge this endpoint doesn't
+ * surface at all. Treat the number this function returns as an ESTIMATE
+ * for admin-facing minimum-withdrawal calculations only, until a real
+ * sandbox/live transaction confirms whether `fee` == fee+VAT combined.
+ *
+ * This function is intentionally non-blocking: if the fee lookup fails,
+ * callers should log it and continue rather than fail the payout, since no
+ * money-moving calculation depends on this value yet.
+ */
+async function getFlutterwaveTransferFee(flwKey, { amount, currency }) {
+  const url = `${FLW_BASE}/transfers/fee?amount=${encodeURIComponent(amount)}` +
+              `&currency=${encodeURIComponent(currency)}`;
+
+  const res  = await fetch(url, { headers: { Authorization: `Bearer ${flwKey}` } });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || data.status !== 'success' || !Array.isArray(data.data) || !data.data.length) {
+    throw new Error(data.message || `Flutterwave fee lookup failed (status ${res.status})`);
+  }
+
+  const entry = data.data.find(d => d.currency === currency) || data.data[0];
+  if (entry == null || entry.fee == null) {
+    throw new Error('Flutterwave fee lookup returned no usable fee value');
+  }
+
+  return {
+    fee:      Math.round(Number(entry.fee) * 100) / 100,
+    feeType:  entry.fee_type || null,
+    currency: entry.currency || currency,
+  };
+}
+
+/**
+ * Step 6 of the plan — withdraw page transparency.
+ *
+ * Read-only fee/minimum preview for the withdraw page UI. Mirrors the exact
+ * math STEP 1b/1c below apply to a real payout (platform fee, then — for
+ * non-NGN Flutterwave currencies only — the live conversion fee and the
+ * per-currency minimum), but touches NO balance, creates NO payout doc, and
+ * requires NO OTP. It is intentionally kept as a fully separate function
+ * rather than a shared code path with the live payout logic below, so that
+ * building this preview can never alter — even accidentally — the real
+ * money-moving flow.
+ *
+ * Always resolves to a Netlify function response object. Fee-lookup failures
+ * degrade gracefully (feeUnavailable: true, HTTP 200) rather than erroring,
+ * since this runs live as the user types and a transient Flutterwave hiccup
+ * shouldn't flash a scary error banner — the real payout call still enforces
+ * the fee strictly and will fail loudly if the fee truly can't be fetched.
+ */
+async function buildPayoutFeePreview({ uid, amountLocal, debitCurrency, payoutCurrencyNormalized, isCrossCurrency }) {
+  try {
+    const db       = getDb();
+    const settings = await getSettings(db);
+
+    if (!settings.flutterwaveEnabled && !settings.stripeEnabled) {
+      return { statusCode: 403, body: JSON.stringify({ error: 'Bank withdrawals are not currently enabled.' }) };
+    }
+
+    const userSnap = await db.collection('users').doc(uid).get();
+    if (!userSnap.exists) {
+      return { statusCode: 404, body: JSON.stringify({ error: 'User not found.' }) };
+    }
+    const userData = userSnap.data();
+
+    // Platform fee — identical formula to STEP 1b below.
+    let feePct = 1.5;
+    try {
+      const cfgSnap = await db.collection('config').doc('platform').get();
+      if (cfgSnap.exists) {
+        const cfgData = cfgSnap.data();
+        if (typeof cfgData.withdrawalFeePercent === 'number') feePct = cfgData.withdrawalFeePercent;
+        const isPro = userData.plan === 'pro' && userData.premiumStatus === 'active';
+        if (isPro && typeof cfgData.withdrawalFeePercentPro === 'number') feePct = cfgData.withdrawalFeePercentPro;
+      }
+    } catch (cfgErr) {
+      console.warn('[create-bank-payout:preview] Could not load fee config, using default:', cfgErr.message);
+    }
+
+    const platformFee = +(amountLocal * (feePct / 100)).toFixed(2);
+    let afterPlatformFee = +(amountLocal - platformFee).toFixed(2);
+
+    const basePreview = {
+      preview:            true,
+      currency:            debitCurrency,
+      payoutCurrency:      payoutCurrencyNormalized,
+      amountRequested:     amountLocal,
+      platformFeePct:      feePct,
+      platformFee:         platformFee,
+      afterPlatformFee:    afterPlatformFee,
+      flutterwaveConversionFee: null,
+      minWithdrawal:       0,
+      belowMinimum:        false,
+      feeUnavailable:      false,
+      finalAmountReceived: afterPlatformFee,
+      settlementNote:      null,
+    };
+
+    if (afterPlatformFee <= 0) {
+      basePreview.finalAmountReceived = 0;
+      return { statusCode: 200, body: JSON.stringify(basePreview) };
+    }
+
+    const isFlwCurrency = FLW_TRANSFER_CURRENCIES.includes(payoutCurrencyNormalized);
+    const flwKey        = process.env.FLW_SECRET_KEY;
+
+    // Same condition as STEP 1c: only non-NGN Flutterwave-routed currencies
+    // ever carry this fee — NGN never does, since Flutterwave's settlement
+    // wallet is NGN-only.
+    if (isFlwCurrency && payoutCurrencyNormalized !== 'NGN' && settings.flutterwaveEnabled && flwKey) {
+      // Deliberately does NOT explain *why* the fee exists (i.e. never
+      // mentions that Kreddlo's settlement wallet is NGN-only) — that's
+      // internal treasury/settlement architecture and shouldn't be surfaced
+      // to end users. The message stays factual and currency-specific only.
+      basePreview.settlementNote =
+        `Payouts in ${payoutCurrencyNormalized} include a currency conversion fee charged by our payment processor.`;
+
+      try {
+        let destinationAmount = afterPlatformFee;
+        if (isCrossCurrency) {
+          destinationAmount = await getFlutterwaveEquivalentAmount(flwKey, {
+            amount:         afterPlatformFee,
+            currency:       debitCurrency,
+            targetCurrency: payoutCurrencyNormalized,
+          });
+        }
+
+        const minForCurrency = Number(
+          (settings.minWithdrawalByCurrency && settings.minWithdrawalByCurrency[payoutCurrencyNormalized]) || 0
+        );
+        basePreview.minWithdrawal = minForCurrency;
+        if (minForCurrency > 0 && destinationAmount < minForCurrency) {
+          basePreview.belowMinimum        = true;
+          basePreview.finalAmountReceived = afterPlatformFee;
+          return { statusCode: 200, body: JSON.stringify(basePreview) };
+        }
+
+        const flwConversionFee = await getFlutterwaveTransferFee(flwKey, {
+          amount:   destinationAmount,
+          currency: payoutCurrencyNormalized,
+        });
+
+        const feeInDebitCurrency = isCrossCurrency
+          ? await getFlutterwaveEquivalentAmount(flwKey, {
+              amount:         flwConversionFee.fee,
+              currency:       payoutCurrencyNormalized,
+              targetCurrency: debitCurrency,
+            })
+          : flwConversionFee.fee;
+
+        flwConversionFee.amountInDebitCurrency = +Number(feeInDebitCurrency).toFixed(2);
+        flwConversionFee.debitCurrency         = debitCurrency;
+
+        const finalAmount = +(afterPlatformFee - feeInDebitCurrency).toFixed(2);
+        basePreview.flutterwaveConversionFee = flwConversionFee;
+        basePreview.finalAmountReceived      = finalAmount > 0 ? finalAmount : 0;
+      } catch (feeErr) {
+        console.warn('[create-bank-payout:preview] Live fee lookup failed:', feeErr.message);
+        basePreview.feeUnavailable      = true;
+        basePreview.finalAmountReceived = afterPlatformFee;
+      }
+    }
+
+    return { statusCode: 200, body: JSON.stringify(basePreview) };
+  } catch (err) {
+    console.error('[create-bank-payout:preview] Unexpected error:', err);
+    return { statusCode: 500, body: JSON.stringify({ error: 'Could not compute fee preview right now. Please try again.' }) };
+  }
 }
 
 /**
@@ -512,6 +700,24 @@ exports.handler = async function (event) {
   if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid withdrawal amount.' }) };
   }
+
+  /* ────────────────────────────────────────
+     Step 6 of the plan — dry-run fee preview.
+     Fires before bank-detail validation (below) because a live preview
+     only needs an amount and a currency — not a selected bank/account yet.
+     Returns here unconditionally; nothing below this block runs for a
+     dry-run request, so it can never touch a balance or create a payout.
+  ──────────────────────────────────────── */
+  if (payload.dryRun === true) {
+    return await buildPayoutFeePreview({
+      uid,
+      amountLocal: Number(amount),
+      debitCurrency,
+      payoutCurrencyNormalized,
+      isCrossCurrency,
+    });
+  }
+
   if (!safeAccountName) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Account holder name is required.' }) };
   }
@@ -684,12 +890,121 @@ exports.handler = async function (event) {
     // requested withdrawal from their earnings; the fee comes out of the
     // payout they receive, same as the crypto path in create-payout.js.
     const platformFee = expectedPlatformFee;
-    const netPayoutAmount = +(amountLocal - platformFee).toFixed(2);
+    // Step 3 fix: was `const` — now reassigned below once the live
+    // Flutterwave conversion fee (if any) is subtracted from it.
+    let netPayoutAmount = +(amountLocal - platformFee).toFixed(2);
     if (netPayoutAmount <= 0) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Withdrawal amount is too small to cover the platform fee.' }),
       };
+    }
+
+    /* ────────────────────────────────────────
+       STEP 1c — Per-currency minimum withdrawal + live Flutterwave
+       conversion fee (Step 3 fix).
+
+       This runs BEFORE any balance is touched and BEFORE the payout doc is
+       created, for two reasons:
+         1. The minimum check must reject a too-small withdrawal before we
+            ever debit a balance — not after, when the only recovery is a
+            refund.
+         2. The live fee, once fetched, must be subtracted from
+            netPayoutAmount before that figure is written to the payout doc,
+            debited, recorded, or handed to the gateway in STEP 4 below — so
+            it has to be known here, not later inside STEP 4's routing logic.
+
+       Applies ONLY to non-NGN currencies that route through Flutterwave's
+       automated transfer rail (FLW_TRANSFER_CURRENCIES). NGN never incurs
+       this fee — settings.flutterwaveSettlementCurrency is NGN-only, so an
+       NGN payout is not a conversion from Flutterwave's point of view.
+       Every OTHER FLW-routed currency IS a conversion, even when the
+       freelancer's balance and bank account are denominated in the same
+       currency (e.g. a GHS balance paying a GHS bank account) — the
+       Flutterwave wallet actually funding it is NGN, so Flutterwave still
+       charges its NGN→GHS conversion fee. There is no "already the right
+       currency, skip the fee" case.
+
+       If Flutterwave isn't even in play for this payout (unsupported
+       currency, gateway disabled, no key), this block is skipped entirely
+       and the payout proceeds exactly as before.
+    ──────────────────────────────────────── */
+    const isFlwCurrency = FLW_TRANSFER_CURRENCIES.includes(payoutCurrencyNormalized);
+    const flwKey         = process.env.FLW_SECRET_KEY;
+    let flwConversionFee  = null; // { fee, feeType, currency, amountInDebitCurrency, debitCurrency } once fetched
+
+    if (isFlwCurrency && payoutCurrencyNormalized !== 'NGN' && settings.flutterwaveEnabled && flwKey) {
+      try {
+        // Amount this fee/minimum check is based on: netPayoutAmount (post-
+        // platform-fee), converted into the destination currency when the
+        // freelancer's balance currency differs from the bank account's
+        // currency. Read-only quote — no money moves.
+        let destinationAmount = netPayoutAmount;
+        if (isCrossCurrency) {
+          destinationAmount = await getFlutterwaveEquivalentAmount(flwKey, {
+            amount:         netPayoutAmount,
+            currency:       debitCurrency,
+            targetCurrency: payoutCurrencyNormalized,
+          });
+        }
+
+        // Per-currency admin-configurable minimum (Step 5 of the plan).
+        // Falls back to 0 (no minimum enforced) if the admin hasn't
+        // configured a value for this currency yet, so an unconfigured
+        // currency never silently blocks withdrawals.
+        const minForCurrency = Number(
+          (settings.minWithdrawalByCurrency && settings.minWithdrawalByCurrency[payoutCurrencyNormalized]) || 0
+        );
+        if (minForCurrency > 0 && destinationAmount < minForCurrency) {
+          const err = new Error(
+            `Minimum withdrawal for ${payoutCurrencyNormalized} is ${formatCurrency(minForCurrency, payoutCurrencyNormalized)}. ` +
+            `Flutterwave's conversion fee would take up too large a share of a smaller amount.`
+          );
+          err.statusCode = 400;
+          throw err;
+        }
+
+        // Live fee — required, non-skippable (Step 2–4 of the plan). If this
+        // lookup fails, we deliberately do NOT fall back to sending an
+        // automated transfer with an unknown fee — that would either
+        // shortchange the freelancer (Flutterwave applies a fee we never
+        // showed or deducted) or silently cost the platform the difference.
+        // The request fails here instead, before any balance has moved, so
+        // the user can safely retry with no risk of a stuck/duplicate payout.
+        flwConversionFee = await getFlutterwaveTransferFee(flwKey, {
+          amount:   destinationAmount,
+          currency: payoutCurrencyNormalized,
+        });
+
+        // Convert the fee into the freelancer's balance currency so it can be
+        // subtracted from netPayoutAmount (denominated in debitCurrency).
+        const feeInDebitCurrency = isCrossCurrency
+          ? await getFlutterwaveEquivalentAmount(flwKey, {
+              amount:         flwConversionFee.fee,
+              currency:       payoutCurrencyNormalized,
+              targetCurrency: debitCurrency,
+            })
+          : flwConversionFee.fee;
+
+        netPayoutAmount = +(netPayoutAmount - feeInDebitCurrency).toFixed(2);
+        flwConversionFee.amountInDebitCurrency = +Number(feeInDebitCurrency).toFixed(2);
+        flwConversionFee.debitCurrency         = debitCurrency;
+
+        if (netPayoutAmount <= 0) {
+          const err = new Error("Withdrawal amount is too small to cover the platform fee and Flutterwave's conversion fee.");
+          err.statusCode = 400;
+          throw err;
+        }
+      } catch (feeOrMinErr) {
+        if (feeOrMinErr.statusCode) {
+          return { statusCode: feeOrMinErr.statusCode, body: JSON.stringify({ error: feeOrMinErr.message }) };
+        }
+        console.error(`[create-bank-payout] Live fee/minimum check failed for uid ${uid}, currency ${payoutCurrencyNormalized}:`, feeOrMinErr.message);
+        return {
+          statusCode: 503,
+          body: JSON.stringify({ error: `Could not verify current transfer fees for ${payoutCurrencyNormalized} right now. Please try again in a moment.` }),
+        };
+      }
     }
 
     const bankDetails = {
@@ -876,6 +1191,12 @@ exports.handler = async function (event) {
       bankDetails,
       fees: {
         platformFee,
+        // Live Flutterwave conversion fee (Step 3 fix) — a separate, clearly
+        // labeled line distinct from the platform fee above, already
+        // subtracted from netAmount below. null when this payout doesn't
+        // route through Flutterwave's automated transfer rail (unsupported
+        // currency, gateway disabled, or NGN which never incurs it).
+        ...(flwConversionFee ? { flutterwaveConversionFee: flwConversionFee } : {}),
       },
       status:    'pending',
       createdAt: new Date(),
@@ -935,8 +1256,9 @@ exports.handler = async function (event) {
     // Routing decisions (which gateway, which bank network) are based on
     // payoutCurrencyNormalized — the currency the BENEFICIARY BANK receives —
     // not the balance bucket being debited. These can differ (cross-currency).
-    const isFlwCurrency    = FLW_TRANSFER_CURRENCIES.includes(payoutCurrencyNormalized);
-    const flwKey           = process.env.FLW_SECRET_KEY;
+    // isFlwCurrency and flwKey are already declared above (STEP 1c) — reused
+    // here rather than redeclared, since the live fee lookup there needs the
+    // exact same values this routing logic uses.
     const stripeKey        = process.env.STRIPE_SECRET_KEY;
 
     if (isFlwCurrency && settings.flutterwaveEnabled && flwKey) {
@@ -1045,6 +1367,17 @@ exports.handler = async function (event) {
               // The rate divergence risk is low on any single transaction.
               console.warn('[create-bank-payout] Fix C cap check: Frankfurter fetch failed (non-fatal):', capErr.message);
             }
+          }
+
+          // Live Flutterwave fee (Step 2 fix) was already fetched AND
+          // applied to netPayoutAmount earlier, in STEP 1c — before the
+          // balance was ever debited. It is deliberately NOT re-fetched
+          // here: re-quoting at this point could return a slightly
+          // different number than the one actually subtracted from what
+          // the freelancer receives, which would make the payout doc's
+          // recorded fee inconsistent with the math that was applied.
+          if (flwAmount !== null && flwConversionFee) {
+            console.log(`[create-bank-payout] Applied live FLW fee for payoutId ${payoutId}: ${flwConversionFee.fee} ${flwConversionFee.currency} (fee_type: ${flwConversionFee.feeType}) — ${flwConversionFee.amountInDebitCurrency} ${flwConversionFee.debitCurrency} deducted from freelancer's net payout.`);
           }
 
           // Fix C — skip transfer if cap check blocked it (flwAmount set to null above)
@@ -1176,6 +1509,14 @@ exports.handler = async function (event) {
       // null for non-FLW methods or same-currency transfers with no quote.
       flwSettlementCurrency: flwSettlementCurrency || null,
       flwPayoutAmount:       flwPayoutAmount       || null,
+      // Live Flutterwave fee actually applied (Step 3 fix) — fetched in
+      // STEP 1c, before any balance was touched, and already subtracted
+      // from netAmount/netPayoutAmount above. { fee, feeType, currency,
+      // amountInDebitCurrency, debitCurrency } or null if this payout
+      // doesn't route through Flutterwave's automated rail (unsupported
+      // currency, gateway disabled, or NGN). See getFlutterwaveTransferFee()'s
+      // doc comment re: unconfirmed VAT handling on Flutterwave's side.
+      flwConversionFee:      flwConversionFee      || null,
       bankDetails,            // update with any resolved fields (bankCode, stripeBankName)
       // Add a processing note for manual review cases
       ...(method === 'pending_manual' ? {
@@ -1256,6 +1597,7 @@ exports.handler = async function (event) {
         newCurrencyBalance,
         amount:             amountLocal,
         platformFee,
+        flutterwaveConversionFee: flwConversionFee || null,
         netAmount:          netPayoutAmount,
         message:            resultMessage,
       }),
