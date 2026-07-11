@@ -45,8 +45,6 @@ import { verifyCaller }                  from './_verify-auth';
 import { sanitizeString, sanitizeUrl }   from './_sanitize';
 import { getSettings }                   from './get-settings';
 
-const DAILY_CREDIT_ALLOWANCE = 10;
-
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
 
@@ -134,7 +132,19 @@ export default {
       return respond(403, { error: 'Complete identity verification before submitting Pitches.' });
     }
 
-    /* ── 4. Daily credit check — reset if the window has rolled over ── */
+    /* ── 4. Load platform settings first — needed for both the daily
+       allowance (is it enabled? what's the amount?) and the per-Pitch
+       credit cost, admin-configurable in admin.html under "Kreddlo
+       Credits". Falls back to sane defaults if Firestore is unreachable. ── */
+    const settings        = await getSettings(db);
+    const dailyFreeEnabled = settings.dailyFreeCreditsEnabled !== false; // default true
+    const dailyAllowance   = Number(settings.dailyFreeCreditsAmount) > 0 ? Number(settings.dailyFreeCreditsAmount) : 10;
+    const creditCost       = Number(settings.creditsPerPitch) >= 1 ? Math.floor(Number(settings.creditsPerPitch)) : 2;
+
+    /* ── 4a. Daily credit check — reset if the window has rolled over.
+       If the admin has disabled daily free credits, the reset grants 0
+       instead of the allowance, so freelancers fall straight through to
+       purchasedCredits. ── */
     const todayMidnight = todayUtcMidnight();
     let dailyCredits     = Number(userData.dailyCredits);
     let purchasedCredits = Number(userData.purchasedCredits) || 0;
@@ -146,7 +156,7 @@ export default {
 
     let needsReset = !creditsResetAt || isNaN(creditsResetAt.getTime()) || creditsResetAt < todayMidnight;
     if (needsReset || !Number.isFinite(dailyCredits) || dailyCredits < 0) {
-      dailyCredits   = DAILY_CREDIT_ALLOWANCE;
+      dailyCredits   = dailyFreeEnabled ? dailyAllowance : 0;
       creditsResetAt = todayMidnight;
     }
 
@@ -154,7 +164,6 @@ export default {
        at this same point-of-use, once per calendar month, the same way the
        daily allowance is reset above. Added to purchasedCredits so it never
        expires and is spent after the daily allowance runs out. ── */
-    const settings = await getSettings(db);
     let monthlyCreditsGrantedAt = userData.monthlyCreditsGrantedAt || null;
     let monthlyGrantApplied = false;
     if (settings.monthlyFreeCreditEnabled && Number(settings.monthlyFreeCreditAmount) > 0) {
@@ -167,7 +176,8 @@ export default {
       }
     }
 
-    if (dailyCredits <= 0 && purchasedCredits <= 0) {
+    const totalAvailable = dailyCredits + purchasedCredits;
+    if (totalAvailable < creditCost) {
       // Persist the reset (if any) and/or the monthly grant (if any) even
       // when blocking, so the UI reflects the correct values on next load.
       if (needsReset || monthlyGrantApplied) {
@@ -180,8 +190,9 @@ export default {
         });
       }
       return respond(402, {
-        error: 'No Kreddlo Credits remaining. Purchase more to continue pitching.',
-        creditsRemaining: 0,
+        error: 'Not enough Kreddlo Credits. Submitting a Pitch costs ' + creditCost + ' Credit' + (creditCost !== 1 ? 's' : '') + '. Purchase more to continue.',
+        creditsRemaining: totalAvailable,
+        creditCost,
       });
     }
 
@@ -248,13 +259,19 @@ export default {
       safePortfolioLink = cleaned;
     }
 
-    /* ── 8. Deduct 1 credit — daily first, then purchased ── */
+    /* ── 8. Deduct creditCost credits total — daily allowance first, then
+       purchased credits cover the remainder. ── */
     let newDailyCredits     = dailyCredits;
     let newPurchasedCredits = purchasedCredits;
-    if (newDailyCredits > 0) {
-      newDailyCredits -= 1;
+    let remaining = creditCost;
+    if (newDailyCredits >= remaining) {
+      newDailyCredits -= remaining;
+      remaining = 0;
     } else {
-      newPurchasedCredits -= 1;
+      remaining -= newDailyCredits;
+      newDailyCredits = 0;
+      newPurchasedCredits = Math.max(0, newPurchasedCredits - remaining);
+      remaining = 0;
     }
 
     await userRef.update({

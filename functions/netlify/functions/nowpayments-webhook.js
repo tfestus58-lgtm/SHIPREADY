@@ -982,6 +982,10 @@ async function creditAffiliateCommission({ db, order, orderId, sellerAmount, con
       affiliateTotalEarned: FieldValue.increment(commissionAmount),
       updatedAt:            FieldValue.serverTimestamp(),
     };
+    // Per-currency lifetime counter — mirrors affiliateBalances so the "Total
+    // Earned" figure can be rendered natively per currency instead of blending
+    // a USD sale and an NGN sale into one meaningless raw number.
+    affiliateUserUpdate[`affiliateTotalEarnedByCurrency.${confirmedCurrency}`] = FieldValue.increment(commissionAmount);
     if (isCleared) {
       // Gate field — always USD-equivalent so withdrawals are meaningful
       affiliateUserUpdate.affiliateBalance = FieldValue.increment(commissionAmountUsd);

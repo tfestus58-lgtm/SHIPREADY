@@ -64,8 +64,8 @@ const COUNTRY_TO_FLW = {
   MW: { flwCountry: 'MW', payoutCurrency: 'MWK' },
   ZM: { flwCountry: 'ZM', payoutCurrency: 'ZMW' },
   ET: { flwCountry: 'ET', payoutCurrency: 'ETB' },
-  SL: { flwCountry: 'SL', payoutCurrency: 'SLL' }, // Sierra Leone
-  EG: { flwCountry: 'EG', payoutCurrency: 'EGP' }, // Egypt
+  // Sierra Leone (SL/SLL) and Egypt (EG/EGP) removed — confirmed Flutterwave
+  // does not actually support payout to these currencies/countries.
 };
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -97,7 +97,8 @@ const CURRENCY_TO_COUNTRY = {
   // FLW currencies
   NGN: 'NG', GHS: 'GH', KES: 'KE', UGX: 'UG', TZS: 'TZ',
   RWF: 'RW', ZAR: 'ZA', XOF: 'CI', XAF: 'CM', MWK: 'MW',
-  ZMW: 'ZM', ETB: 'ET', SLL: 'SL', EGP: 'EG',
+  ZMW: 'ZM', ETB: 'ET',
+  // SLL and EGP removed — Flutterwave does not support payout to these.
   // Stripe currencies
   USD: 'US', CAD: 'CA', AUD: 'AU', NZD: 'NZ', SGD: 'SG',
   HKD: 'HK', GBP: 'GB', EUR: 'DE', CHF: 'CH', DKK: 'DK',

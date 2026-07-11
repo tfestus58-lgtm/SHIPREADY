@@ -30,6 +30,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore }                 from 'firebase-admin/firestore';
 import { verifyCaller }                 from './_verify-auth';
+import { getSettings }                  from './get-settings';
 
 /* ── Firebase Admin — lazy singleton ── */
 let _db = null;
@@ -105,12 +106,21 @@ export default {
 
       const creditsResetAt = toIsoOrNull(userData.creditsResetAt);
 
+      /* ── 2b. Read admin-configurable credit settings so the client can
+         display the real per-Pitch cost and whether daily free credits are
+         still on, instead of assuming defaults. ── */
+      const settings = await getSettings(db);
+      const dailyFreeEnabled = settings.dailyFreeCreditsEnabled !== false;
+      const creditCost = Number(settings.creditsPerPitch) >= 1 ? Math.floor(Number(settings.creditsPerPitch)) : 2;
+
       /* ── 3. Return current values — no writes here (reset happens in submit-pitch.js) ── */
       return respond(200, {
         dailyCredits,
         creditsResetAt,
         purchasedCredits,
         totalAvailable: dailyCredits + purchasedCredits,
+        dailyFreeEnabled,
+        creditCost,
       });
 
     } catch (err) {

@@ -357,6 +357,30 @@ async fetch(request, env, ctx) {
     return respond(200, { received: true });
   }
 
+  /* ── 9b. Route: Kreddlo Credits purchase ──
+     purchase-credits.js tags the Flutterwave meta with type:
+     'credit-purchase' and orderId (the creditOrders doc ID) explicitly.
+     Note: this deliberately reads verifiedTx.meta?.orderId / eventData?.
+     meta?.orderId directly, NOT the top-level `orderId` parsed from
+     tx_ref above — purchase-credits.js's tx_ref is
+     "kreddlo-credits-<orderId>-<timestamp>", one segment longer than the
+     "kreddlo-<orderId>-<timestamp>" shape the generic parser at step 6
+     expects, so that parse would incorrectly yield "credits-<orderId>"
+     here. Reading the explicit meta field sidesteps that entirely,
+     mirroring how the pro_upgrade route above already reads its fields
+     (uid, billingPeriod, subscriptionId) from meta rather than trusting
+     the parsed value. Previously nothing here recognised this payment
+     type at all, so the generic projects → product-orders →
+     invoice-orders lookup below always failed (a creditOrders doc is
+     none of those) and the freelancer's Kreddlo Credits balance was
+     never incremented despite the charge succeeding. ── */
+  const purchaseType = verifiedTx.meta?.type || eventData?.meta?.type || null;
+  if (purchaseType === 'credit-purchase') {
+    const creditOrderId = verifiedTx.meta?.orderId || eventData?.meta?.orderId || orderId;
+    await handleCreditPurchase({ db, orderId: creditOrderId, gateway: 'flutterwave' });
+    return respond(200, { received: true });
+  }
+
   /* ── 10. Route: try projects first, then product-orders, then invoice-orders ── */
   const projectRef  = db.collection('projects').doc(orderId);
   let   projectSnap;
@@ -894,6 +918,10 @@ async function creditAffiliateCommission({ db, order, orderId, sellerAmount, con
       affiliateTotalEarned: FieldValue.increment(commissionAmount),
       updatedAt:            FieldValue.serverTimestamp(),
     };
+    // Per-currency lifetime counter — mirrors affiliateBalances so the "Total
+    // Earned" figure can be rendered natively per currency instead of blending
+    // a USD sale and an NGN sale into one meaningless raw number.
+    affiliateUserUpdate[`affiliateTotalEarnedByCurrency.${confirmedCurrency}`] = FieldValue.increment(commissionAmount);
     if (isCleared) {
       // Gate field — always USD-equivalent so withdrawals are meaningful
       affiliateUserUpdate.affiliateBalance = FieldValue.increment(commissionAmountUsd);
@@ -1022,6 +1050,73 @@ async function handleProUpgrade({ db, uid, billingPeriod, subscriptionId, gatewa
   } catch (err) {
     console.error('[pro_upgrade] Firestore update failed:', err.message);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CREDIT PURCHASE HANDLER
+   Called when a Kreddlo Credits bundle payment completes via Stripe or
+   Flutterwave (see purchase-credits.js for the checkout-creation side).
+   Reads the credits/uid amounts from the creditOrders doc itself — never
+   trusts the gateway session/metadata for the amount, so a tampered
+   client request can't inflate the credited amount. Wrapped in a
+   transaction with a fresh re-read, mirroring the idempotency pattern
+   used by handleInvoiceOrderPaid below: gateways can and do redeliver
+   the same webhook event, so the 'already completed' check must happen
+   on a fresh read inside the transaction, not a pre-flight snapshot. ── */
+async function handleCreditPurchase({ db, orderId, gateway }) {
+  if (!orderId) {
+    console.error('[credit-purchase] Missing orderId — cannot credit purchase.');
+    return;
+  }
+
+  const orderRef = db.collection('creditOrders').doc(orderId);
+
+  let alreadyCompleted = false;
+  let order = null;
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(orderRef);
+      if (!snap.exists) {
+        throw new Error(`creditOrders/${orderId} not found.`);
+      }
+      order = snap.data();
+
+      if (order.status === 'completed') {
+        alreadyCompleted = true;
+        return;
+      }
+
+      const uid     = order.uid     || null;
+      const credits = Number(order.credits) || 0;
+
+      if (!uid || credits <= 0) {
+        throw new Error(`creditOrders/${orderId} has invalid uid/credits (uid: ${uid}, credits: ${credits}).`);
+      }
+
+      const userRef = db.collection('users').doc(uid);
+      tx.update(userRef, {
+        purchasedCredits: FieldValue.increment(credits),
+        updatedAt:         FieldValue.serverTimestamp(),
+      });
+
+      tx.update(orderRef, {
+        status:      'completed',
+        completedAt: FieldValue.serverTimestamp(),
+        gateway,
+      });
+    });
+  } catch (err) {
+    console.error(`[credit-purchase] Transaction failed for order ${orderId}:`, err.message);
+    return;
+  }
+
+  if (alreadyCompleted) {
+    console.log(`[credit-purchase] Order ${orderId} already completed. Skipping duplicate webhook.`);
+    return;
+  }
+
+  console.log(`[credit-purchase] Order ${orderId} completed via ${gateway} — credited ${order.credits} credits to uid ${order.uid}.`);
 }
 
 /* ══════════════════════════════════════════════════════════════

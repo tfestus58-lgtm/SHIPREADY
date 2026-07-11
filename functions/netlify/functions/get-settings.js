@@ -22,6 +22,40 @@ const DEFAULTS = {
   affiliateHoldingDays:         0,
   invoiceDeliverByHours:        48,
   minWithdrawalUsd:             10,
+  // Per-currency minimum bank withdrawal, in EACH currency's own native units
+  // (not USD). Applies only to the 11 non-NGN currencies Flutterwave
+  // transfers to automatically (see FLW_TRANSFER_CURRENCIES in
+  // create-bank-payout.js) — NGN is excluded because Flutterwave's
+  // settlement wallet is NGN-only, so NGN payouts never incur the
+  // conversion fee this minimum protects against.
+  //
+  // Rationale: every payout in these currencies is really an NGN→X
+  // conversion from Flutterwave's side (even a "same-currency-looking"
+  // GHS→GHS payout), so it always carries a live Flutterwave fee. If the
+  // withdrawal amount is too small, that fee can eat an unreasonable share
+  // of it. Each minimum here should be set so the fee-to-amount ratio stays
+  // under a sane threshold, using the currency's current Flutterwave fee as
+  // the input for that calculation — see create-bank-payout.js's
+  // getFlutterwaveTransferFee().
+  //
+  // These defaults are placeholder starting points only, based on rough
+  // currency-value scale — NOT derived from a live Flutterwave fee lookup.
+  // Flutterwave's fees can drift over time, so admins should revisit these
+  // periodically (admin.html shows them under "Flutterwave Payout Minimums")
+  // rather than treating them as a permanent guarantee.
+  minWithdrawalByCurrency: {
+    GHS: 50,
+    KES: 500,
+    ZAR: 100,
+    UGX: 20000,
+    TZS: 15000,
+    RWF: 5000,
+    ETB: 300,
+    XOF: 3000,
+    XAF: 3000,
+    MWK: 8000,
+    ZMW: 100,
+  },
   affiliateWithdrawFeePercent:  2.0,
   minAffiliateWithdrawalUsd:    5,
   boostPrice24h:             5,
@@ -64,6 +98,14 @@ const DEFAULTS = {
   // the same point-of-use as the daily reset, inside submit-pitch.js.
   monthlyFreeCreditEnabled:   false,
   monthlyFreeCreditAmount:    0,
+  // Daily free credits — admin can disable these entirely (once the 10/day
+  // giveaway needs to end) or adjust the amount. submit-pitch.js reads
+  // these live; get-credits.js surfaces them to the client for display.
+  dailyFreeCreditsEnabled:    true,
+  dailyFreeCreditsAmount:     10,
+  // Credits deducted per Pitch submission — admin-configurable so this can
+  // be raised as the platform scales without a code change.
+  creditsPerPitch:            2,
 };
 
 /**
