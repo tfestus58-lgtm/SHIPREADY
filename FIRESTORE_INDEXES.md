@@ -725,3 +725,40 @@ was removed as it is fully superseded by this 3-field index. Firestore will use 
 `dashboard-earnings.html` will catch `FAILED_PRECONDITION` via `safeGetDocs` and
 retry without `orderBy`. Data will still load but invoice earnings will not be sorted
 newest-first until the index finishes provisioning (typically 1–2 minutes after deploy).
+
+---
+
+## Required Composite Index — Seller Totals Backfill Script
+
+Used by: `netlify/functions/backfill-seller-totals.js` (one-time admin script)
+
+| Field         | Collection | Order |
+|---------------|------------|-------|
+| `totalEarned` | users      | ASC   |
+| `__name__`    | users      | ASC   |
+
+**Query scope:** Collection
+
+```json
+{
+  "collectionGroup": "users",
+  "queryScope": "COLLECTION",
+  "fields": [
+    { "fieldPath": "totalEarned", "order": "ASCENDING" },
+    { "fieldPath": "__name__",    "order": "ASCENDING" }
+  ]
+}
+```
+
+This entry is already present in `firestore.indexes.json`. Deploy it with:
+
+```bash
+firebase deploy --only firestore:indexes
+```
+
+### Symptom if missing
+
+The backfill function's query will throw `FAILED_PRECONDITION` and the function
+returns a 500 with the error detail in the response body — the Firestore error
+message includes a direct console link to auto-create the index. No data is at
+risk either way since nothing is written until the query succeeds.

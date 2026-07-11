@@ -766,10 +766,23 @@ header > div:last-child {
 
           <!-- Bank fee breakdown -->
           <div id="bank-fee-breakdown" style="background:#e8f5ef;border-radius:12px;padding:16px;margin-bottom:20px;">
-            <div style="font-size:12px;font-weight:700;color:rgba(13,33,69,0.55);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Fee Breakdown</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+              <div style="font-size:12px;font-weight:700;color:rgba(13,33,69,0.55);text-transform:uppercase;letter-spacing:1px;">Fee Breakdown</div>
+              <!-- Live-fee loading indicator (Step 6) — shown while the server-side preview is in flight -->
+              <div id="bank-fee-flw-loading" style="display:none;align-items:center;gap:5px;font-size:11px;font-weight:600;color:rgba(13,33,69,0.45);">
+                <div class="spinner" style="width:10px;height:10px;border-width:2px;"></div> Checking live fees…
+              </div>
+            </div>
             <div class="fee-row">
               <span class="platform-fee-label" style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.58);">Platform fee (1.5%)</span>
               <span id="bank-fee-platform" style="font-size:13px;font-weight:600;color:#0d2145;">-</span>
+            </div>
+            <!-- Live Flutterwave conversion fee row (Step 6) — hidden unless the withdrawal
+                 actually incurs one; populated from the server dry-run preview, never estimated
+                 client-side. -->
+            <div id="bank-fee-flw-row" class="fee-row" style="display:none;margin-top:6px;">
+              <span style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.58);">Flutterwave conversion fee</span>
+              <span id="bank-fee-flw-amount" style="font-size:13px;font-weight:600;color:#0d2145;">-</span>
             </div>
             <div style="height:1px;background:rgba(45,138,94,0.18);margin:8px 0;"></div>
             <div class="fee-row" style="padding-top:4px;">
@@ -782,7 +795,16 @@ header > div:last-child {
               <div style="clear:both;"></div>
               <div id="bank-local-rate-note" style="font-size:11px;color:rgba(13,33,69,0.4);margin-top:3px;"></div>
             </div>
+            <!-- Plain-language note (Step 6) — explains the FLW fee, or flags a transient
+                 fee-lookup failure. Populated from the server preview's settlementNote /
+                 feeUnavailable fields; text only, never a hardcoded number. -->
+            <div id="bank-flw-settlement-note" style="display:none;margin-top:10px;font-size:11.5px;line-height:1.5;color:rgba(13,33,69,0.5);"></div>
           </div>
+
+          <!-- Below-minimum warning (Step 6) — blocks confirmation until the amount clears
+               this currency's admin-configured minimum. Shown in place of a generic
+               "insufficient funds" failure after the fact. -->
+          <div id="bank-min-warning" style="display:none;font-size:13px;font-weight:500;color:#8a6116;margin-bottom:12px;padding:10px 14px;background:#fff6e0;border:1.5px solid #f2d98a;border-radius:10px;line-height:1.5;"></div>
 
           <!-- Bank error -->
           <div id="bank-error" style="display:none;font-size:13px;font-weight:500;color:#c81e1e;margin-bottom:12px;padding:10px 14px;background:#fde8e8;border-radius:10px;"></div>
@@ -966,7 +988,7 @@ let liveWalletAddress = '';
 
 // Currency classification — used to split balancesMap into fiat vs crypto subsets
 // for the two balance cards so they never show identical values.
-var FIAT_CURRENCIES  = ['NGN','USD','GBP','EUR','KES','GHS','ZAR','UGX','TZS','XOF','EGP','MAD','RWF','ZMW','ETB','TND','DZD','XAF'];
+var FIAT_CURRENCIES  = ['NGN','USD','GBP','EUR','KES','GHS','ZAR','UGX','TZS','XOF','MAD','RWF','ZMW','ETB','TND','DZD','XAF'];
 var CRYPTO_CURRENCIES = ['USDT','BTC','ETH','BNB','USDC','LTC','DOGE','XRP','TRX','SOL','ADA','MATIC','BCH','LINK','DOT','AVAX','SHIB'];
 
 // Returns a filtered subset of a balancesMap containing only the listed currency codes.
@@ -1014,7 +1036,7 @@ const COUNTRY_CURRENCY_MAP = {
   'Nigeria': 'NGN', 'Ghana': 'GHS', 'Kenya': 'KES', 'South Africa': 'ZAR',
   'Tanzania': 'TZS', 'Uganda': 'UGX', 'Rwanda': 'RWF', 'Ethiopia': 'ETB',
   'Senegal': 'XOF', 'Ivory Coast': 'XOF', "Côte d'Ivoire": 'XOF',
-  'Cameroon': 'XAF', 'Egypt': 'EGP', 'Morocco': 'MAD', 'Tunisia': 'TND',
+  'Cameroon': 'XAF', 'Morocco': 'MAD', 'Tunisia': 'TND',
   'United Kingdom': 'GBP', 'Germany': 'EUR', 'France': 'EUR', 'Italy': 'EUR',
   'Spain': 'EUR', 'Portugal': 'EUR', 'Netherlands': 'EUR', 'Belgium': 'EUR',
   'Austria': 'EUR', 'Greece': 'EUR', 'Finland': 'EUR', 'Ireland': 'EUR',
@@ -1030,7 +1052,7 @@ const COUNTRY_CURRENCY_MAP = {
   'Kuwait': 'KWD', 'Bahrain': 'BHD', 'Oman': 'OMR', 'Sri Lanka': 'LKR',
   'Nepal': 'NPR', 'Myanmar': 'MMK', 'Cambodia': 'KHR', 'Zimbabwe': 'ZWL',
   'Zambia': 'ZMW', 'Mozambique': 'MZN', 'Angola': 'AOA', 'Botswana': 'BWP',
-  'Namibia': 'NAD', 'Malawi': 'MWK', 'Liberia': 'LRD', 'Sierra Leone': 'SLL',
+  'Namibia': 'NAD', 'Malawi': 'MWK', 'Liberia': 'LRD',
   'Mauritius': 'MUR', 'Seychelles': 'SCR', 'Chile': 'CLP', 'Peru': 'PEN',
   'Venezuela': 'VES', 'Guatemala': 'GTQ', 'Costa Rica': 'CRC', 'Panama': 'PAB',
   'Dominican Republic': 'DOP', 'Jamaica': 'JMD', 'Trinidad and Tobago': 'TTD',
@@ -1076,8 +1098,8 @@ var SUPPORTED_COUNTRIES = [
   { code:'CM', flag:'🇨🇲', label:'Cameroon',          payoutCurrency:'XAF', gateway:'flw' },
   { code:'MW', flag:'🇲🇼', label:'Malawi',            payoutCurrency:'MWK', gateway:'flw' },
   { code:'ZM', flag:'🇿🇲', label:'Zambia',            payoutCurrency:'ZMW', gateway:'flw' },
-  { code:'SL', flag:'🇸🇱', label:'Sierra Leone',      payoutCurrency:'SLL', gateway:'flw' },
-  { code:'EG', flag:'🇪🇬', label:'Egypt',             payoutCurrency:'EGP', gateway:'flw' },
+  // Sierra Leone and Egypt removed — confirmed Flutterwave does not
+  // actually support payout to these currencies/countries.
   // ── Stripe (routing number / IBAN / sort-code) ────────────────────────────
   { code:'US', flag:'🇺🇸', label:'United States',     payoutCurrency:'USD', gateway:'stripe' },
   { code:'GB', flag:'🇬🇧', label:'United Kingdom',    payoutCurrency:'GBP', gateway:'stripe' },
@@ -1198,7 +1220,7 @@ function renderWithdrawalCurrencySelector() {
 }
 
 // ── Country selector — "What country is your bank account in?" ────────────────
-// Renders a searchable <select> of all 28 SUPPORTED_COUNTRIES.
+// Renders a searchable <select> of all 26 SUPPORTED_COUNTRIES.
 // On change calls onCountryChange(countryCode).
 function renderCountrySelector() {
   var container = document.getElementById('withdrawal-currency-selector');
@@ -1734,7 +1756,7 @@ async function fetchBankList() {
   }
 
   // ── FLW-SUPPORTED CURRENCY ─────────────────────────────────────────────────
-  const FLW_SUPPORTED = ['NGN','GHS','KES','UGX','TZS','RWF','ZAR','XOF','XAF','MWK','ZMW','ETB','SLL','EGP'];
+  const FLW_SUPPORTED = ['NGN','GHS','KES','UGX','TZS','RWF','ZAR','XOF','XAF','MWK','ZMW','ETB']; // SLL and EGP removed — Flutterwave does not support payout to these.
 
   // Reset any Stripe state from a prior currency
   currentStripeFields = null;
@@ -2041,6 +2063,145 @@ function calcBankFees() {
   } else {
     if (localEl) localEl.style.display = 'none';
   }
+
+  // ---- Live Flutterwave fee + per-currency minimum preview (Step 6 of the plan) ----
+  // Debounced server round-trip — the platform-fee figures above are shown
+  // immediately from client math, then the line above "You will receive"
+  // is corrected to the live, server-computed number once the preview
+  // returns. Never estimated client-side.
+  scheduleBankFeePreview(amt, debitCur, bankCur);
+}
+
+// ── Step 6: live fee preview state ──
+let bankFeePreviewTimer      = null;
+let bankFeePreviewController = null;
+let lastBankFeePreview       = null; // most recent server preview; used by handleBankWithdraw() as a safety check
+
+function scheduleBankFeePreview(amt, debitCur, bankCur) {
+  // Every keystroke invalidates whatever was previously shown — the old
+  // number belonged to a different amount and would otherwise sit there
+  // looking current while it's actually stale.
+  hideBankFeePreviewUI();
+
+  if (bankFeePreviewTimer) clearTimeout(bankFeePreviewTimer);
+  if (!amt || amt <= 0 || !currentUid) return;
+
+  bankFeePreviewTimer = setTimeout(function () {
+    fetchBankFeePreview(amt, debitCur, bankCur);
+  }, 500); // debounce — avoid a request per keystroke
+}
+
+function hideBankFeePreviewUI() {
+  lastBankFeePreview = null;
+  var flwRow  = document.getElementById('bank-fee-flw-row');
+  var note    = document.getElementById('bank-flw-settlement-note');
+  var minWarn = document.getElementById('bank-min-warning');
+  if (flwRow)  flwRow.style.display  = 'none';
+  if (note)    note.style.display    = 'none';
+  if (minWarn) minWarn.style.display = 'none';
+  var btn = document.getElementById('btn-bank-withdraw');
+  if (btn) btn.disabled = false;
+}
+
+async function fetchBankFeePreview(amt, debitCur, bankCur) {
+  var loadingEl = document.getElementById('bank-fee-flw-loading');
+  if (loadingEl) loadingEl.style.display = 'flex';
+
+  // Cancel any preview request still in flight for a stale amount/currency.
+  if (bankFeePreviewController) {
+    try { bankFeePreviewController.abort(); } catch (e) { /* no-op */ }
+  }
+  bankFeePreviewController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+
+  try {
+    var body = {
+      uid:                currentUid,
+      amount:             amt,
+      withdrawalCurrency: debitCur,
+      dryRun:             true,
+    };
+    if (bankCur && bankCur !== debitCur) body.payoutCurrency = bankCur;
+
+    var fetchOpts = {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (auth.currentUser ? await auth.currentUser.getIdToken() : '') },
+      body:    JSON.stringify(body),
+    };
+    if (bankFeePreviewController) fetchOpts.signal = bankFeePreviewController.signal;
+
+    var res  = await fetch('/.netlify/functions/create-bank-payout', fetchOpts);
+    var data = await res.json().catch(function () { return {}; });
+
+    if (loadingEl) loadingEl.style.display = 'none';
+
+    if (!res.ok || !data || !data.preview) {
+      // Fail silent — the plain client-side platform-fee estimate calcBankFees()
+      // already set is still visible, so the user isn't left with a blank screen.
+      return;
+    }
+
+    lastBankFeePreview = data;
+    renderBankFeePreview(data, debitCur, bankCur);
+  } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    // AbortError just means a newer keystroke superseded this request — expected, not an error.
+  }
+}
+
+function renderBankFeePreview(data, debitCur, bankCur) {
+  var flwRow      = document.getElementById('bank-fee-flw-row');
+  var flwAmountEl = document.getElementById('bank-fee-flw-amount');
+  var note        = document.getElementById('bank-flw-settlement-note');
+  var minWarn     = document.getElementById('bank-min-warning');
+  var finalEl     = document.getElementById('bank-fee-final');
+  var btn         = document.getElementById('btn-bank-withdraw');
+
+  // Below this currency's admin-configured minimum — block confirmation up
+  // front, with the reason, instead of letting the user hit "insufficient
+  // funds" (or a stuck payout) after submitting.
+  if (data.belowMinimum) {
+    if (minWarn) {
+      minWarn.textContent = 'Minimum withdrawal for ' + (data.payoutCurrency || bankCur) + ' is ' +
+        fmtCurrency(data.minWithdrawal, data.payoutCurrency || bankCur) +
+        ". Flutterwave's conversion fee would take up too large a share of a smaller amount.";
+      minWarn.style.display = 'block';
+    }
+    if (flwRow) flwRow.style.display = 'none';
+    if (note)   note.style.display   = 'none';
+    if (btn)    btn.disabled         = true;
+    return;
+  }
+
+  if (minWarn) minWarn.style.display = 'none';
+  if (btn)     btn.disabled          = false;
+
+  if (data.flutterwaveConversionFee) {
+    if (flwRow && flwAmountEl) {
+      flwAmountEl.textContent = '-' + fmtCurrency(data.flutterwaveConversionFee.amountInDebitCurrency, debitCur);
+      flwRow.style.display = 'flex';
+    }
+    if (note && data.settlementNote) {
+      note.textContent   = data.settlementNote;
+      note.style.display = 'block';
+    }
+  } else {
+    if (flwRow) flwRow.style.display = 'none';
+    if (note)   note.style.display   = 'none';
+  }
+
+  // A transient fee-lookup failure on the server — the plain platform-fee
+  // figure stays visible; this just sets expectations that the exact final
+  // number is confirmed again when the withdrawal is actually submitted.
+  if (data.feeUnavailable && note) {
+    note.textContent = "Couldn't confirm live Flutterwave fees just now — the amount shown may change slightly when you confirm.";
+    note.style.display = 'block';
+  }
+
+  // Replaces the plain client-side (platform-fee-only) figure calcBankFees()
+  // set moments earlier with the live, server-computed final amount.
+  if (finalEl && typeof data.finalAmountReceived === 'number' && data.finalAmountReceived > 0) {
+    finalEl.textContent = fmtCurrency(data.finalAmountReceived, debitCur);
+  }
 }
 
 // ======= BANK WITHDRAW (real Netlify Function) =======
@@ -2114,6 +2275,18 @@ async function handleBankWithdraw() {
   }
   if (!amt || amt < MIN_BANK_WITHDRAWAL) {
     errEl.textContent = 'Minimum withdrawal is ' + fmtCurrency(MIN_BANK_WITHDRAWAL, debitCur) + '.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Step 6 — defense in depth: the "Send to Bank Account" button is already
+  // disabled while a live preview reports belowMinimum (see
+  // renderBankFeePreview), but re-check here too in case the preview is
+  // stale (e.g. currency changed after the last successful fetch).
+  if (lastBankFeePreview && lastBankFeePreview.belowMinimum &&
+      lastBankFeePreview.currency === debitCur && Math.abs(Number(lastBankFeePreview.amountRequested) - amt) < 0.005) {
+    errEl.textContent = 'Minimum withdrawal for ' + (lastBankFeePreview.payoutCurrency || debitCur) + ' is ' +
+      fmtCurrency(lastBankFeePreview.minWithdrawal, lastBankFeePreview.payoutCurrency || debitCur) + '.';
     errEl.style.display = 'block';
     return;
   }
@@ -3223,6 +3396,7 @@ if ('serviceWorker' in navigator) {
     if (!user) { window.location.href = '/login.html'; return; }
     getDoc(doc(window.db, 'users', user.uid)).then(function(snap) {
       var role = snap.exists() ? snap.data().role : null;
+      if (role === 'buyer') { window.location.href = '/buyer-dashboard.html'; return; }
       if (role && role !== 'freelancer') { window.location.href = '/login.html'; return; }
       var affiliateEnabled = snap.exists() ? (snap.data().affiliateEnabled === true) : false;
       if (typeof window._boot === 'function') window._boot(user, affiliateEnabled);

@@ -262,12 +262,7 @@
 
     /* ── Badges ── */
     .badge-verified {
-      display: inline-flex; align-items: center; gap: 4px;
-      background: rgba(45,138,94,0.10); color: #2d8a5e;
-      border: 1px solid rgba(45,138,94,0.28);
-      border-radius: 50px; padding: 3px 10px;
-      font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
-      white-space: nowrap;
+      display: inline-flex; align-items: center;
     }
     .badge-boosted {
       display: inline-flex; align-items: center; gap: 4px;
@@ -1585,7 +1580,7 @@
     ──────────────────────────────────── */
     function buildCard(f, now) {
       const isBoosted  = f.boostedUntil && f.boostedUntil.toMillis && f.boostedUntil.toMillis() > now;
-      const isPremium  = f.premiumStatus === 'active';
+      const isVerified = f.kycStatus === 'verified';
       const skills     = (f.skills || []).slice(0, 3);
       const initials   = (f.name || 'U').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
       const profileUrl = `profile.html?uid=${encodeURIComponent(f.id)}`;
@@ -1607,11 +1602,8 @@
 
       // Badges
       let badgesHTML = '';
-      if (isPremium) {
-        badgesHTML += `<span class="badge-verified">
-          <svg width="9" height="9" fill="none" viewBox="0 0 24 24" stroke="#2d8a5e" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>
-          Verified
-        </span>`;
+      if (isVerified) {
+        badgesHTML += `<span class="badge-verified"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Verified" style="flex-shrink:0;"><circle cx="12" cy="12" r="12" fill="#1D9BF0"/><path d="M7 12.3l3.2 3.2L17.3 8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
       }
       if (isBoosted) {
         badgesHTML += `<span class="badge-boosted" style="margin-left:6px;">

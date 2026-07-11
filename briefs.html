@@ -584,13 +584,26 @@
         <div class="filter-scroll-wrap" id="filter-bar-wrap" style="flex:1;min-width:0;">
           <div class="filter-scroll" id="briefs-category-bar" role="group" aria-label="Filter by category">
             <button class="filter-pill active" data-category="">All</button>
-            <button class="filter-pill" data-category="Design">Design</button>
-            <button class="filter-pill" data-category="Development">Development</button>
-            <button class="filter-pill" data-category="Writing">Writing</button>
-            <button class="filter-pill" data-category="Marketing">Marketing</button>
-            <button class="filter-pill" data-category="Video">Video</button>
-            <button class="filter-pill" data-category="Audio">Audio</button>
-            <button class="filter-pill" data-category="Business">Business</button>
+            <button class="filter-pill" data-category="Design & Creative">Design & Creative</button>
+            <button class="filter-pill" data-category="Development & Tech">Development & Tech</button>
+            <button class="filter-pill" data-category="Writing & Translation">Writing & Translation</button>
+            <button class="filter-pill" data-category="Marketing & Growth">Marketing & Growth</button>
+            <button class="filter-pill" data-category="Video & Animation">Video & Animation</button>
+            <button class="filter-pill" data-category="Audio & Music">Audio & Music</button>
+            <button class="filter-pill" data-category="Business & Finance">Business & Finance</button>
+            <button class="filter-pill" data-category="Data & Analytics">Data & Analytics</button>
+            <button class="filter-pill" data-category="Legal & Compliance">Legal & Compliance</button>
+            <button class="filter-pill" data-category="Engineering & Architecture">Engineering & Architecture</button>
+            <button class="filter-pill" data-category="Sales & CRM">Sales & CRM</button>
+            <button class="filter-pill" data-category="Admin & Operations">Admin & Operations</button>
+            <button class="filter-pill" data-category="Customer Support">Customer Support</button>
+            <button class="filter-pill" data-category="Photography">Photography</button>
+            <button class="filter-pill" data-category="3D & CAD">3D & CAD</button>
+            <button class="filter-pill" data-category="AI & Machine Learning">AI & Machine Learning</button>
+            <button class="filter-pill" data-category="Blockchain & Web3">Blockchain & Web3</button>
+            <button class="filter-pill" data-category="Cybersecurity">Cybersecurity</button>
+            <button class="filter-pill" data-category="Education & Training">Education & Training</button>
+            <button class="filter-pill" data-category="Health & Wellness">Health & Wellness</button>
             <button class="filter-pill" data-category="Other">Other</button>
           </div>
         </div>
@@ -606,6 +619,12 @@
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
           <input id="briefs-search-input" type="text" class="search-input" placeholder="Search Briefs by keyword" autocomplete="off" aria-label="Search Briefs" />
+          <button id="briefs-search-clear"
+            type="button"
+            aria-label="Clear search"
+            style="display:none;position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;line-height:0;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(13,33,69,0.45)" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
       </div>
     </div>
@@ -897,15 +916,35 @@
     }
 
     function categoryBadgeClass(cat) {
-      if (cat === 'Design') return 'badge-green';
-      if (cat === 'Development') return 'badge-blue';
-      if (cat === 'Marketing') return 'badge-amber';
+      if (!cat) return 'badge-grey';
+      if (cat === 'Development & Tech' || cat === 'AI & Machine Learning' || cat === 'Blockchain & Web3' || cat === 'Cybersecurity') return 'badge-blue';
+      if (cat === 'Design & Creative' || cat === 'Photography' || cat === '3D & CAD' || cat === 'Video & Animation') return 'badge-green';
+      if (cat === 'Marketing & Growth' || cat === 'Sales & CRM' || cat === 'Business & Finance') return 'badge-amber';
+      if (cat === 'Legal & Compliance' || cat === 'Engineering & Architecture' || cat === 'Data & Analytics') return 'badge-blue';
       return 'badge-grey';
     }
 
     function formatBudget(min, max) {
       var fmt = function(n){ return '$' + Number(n || 0).toLocaleString('en-US'); };
       return fmt(min) + '\u2013' + fmt(max);
+    }
+
+    function skeletonHtml(count) {
+      var card =
+        '<div class="brief-card" aria-hidden="true">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+            '<div class="sk" style="height:20px;width:80px;border-radius:50px;"></div>' +
+            '<div class="sk" style="height:12px;width:50px;"></div>' +
+          '</div>' +
+          '<div class="sk" style="height:16px;width:85%;margin-top:14px;"></div>' +
+          '<div class="sk" style="height:16px;width:60%;margin-top:6px;"></div>' +
+          '<div class="sk" style="height:12px;width:95%;margin-top:14px;"></div>' +
+          '<div class="sk" style="height:12px;width:70%;margin-top:6px;"></div>' +
+          '<div class="sk" style="height:14px;width:50%;margin-top:14px;"></div>' +
+        '</div>';
+      var html = '';
+      for (var i = 0; i < count; i++) { html += card; }
+      return html;
     }
 
     /* ────────────────────────────────────
@@ -919,6 +958,10 @@
     var budgetMinFilter = null;
     var budgetMaxFilter = null;
     var lastPageBriefCount = 0;
+    var lastCursor = null;
+    var searchDebounce = null;
+    var isSearchMode = false;
+    var searchResults = [];
 
     /* ────────────────────────────────────
        LOAD BRIEFS
@@ -929,22 +972,26 @@
       var loadMoreBtn = document.getElementById('briefs-load-more-btn');
       if (loadMoreBtn) { loadMoreBtn.disabled = true; loadMoreBtn.textContent = 'Loading...'; }
 
-      fetch('/.netlify/functions/get-briefs?page=' + page)
+      var briefsUrl = '/.netlify/functions/get-briefs';
+      if (page > 1 && lastCursor) { briefsUrl += '?after=' + encodeURIComponent(lastCursor); }
+      fetch(briefsUrl)
         .then(function(res){ return res.json(); })
         .then(function(data){
           var briefs = (data && data.briefs) || [];
           lastPageBriefCount = briefs.length;
           if (page === 1) {
             allBriefs = briefs;
+            lastCursor = data.nextCursor || null;
           } else {
             allBriefs = allBriefs.concat(briefs);
+            lastCursor = data.nextCursor || null;
           }
           currentPage = page;
           renderBriefs();
           if (loadMoreBtn) {
             loadMoreBtn.disabled = false;
             loadMoreBtn.textContent = 'Load more';
-            loadMoreBtn.style.display = (lastPageBriefCount >= 20) ? 'inline-flex' : 'none';
+            loadMoreBtn.style.display = (lastCursor) ? 'inline-flex' : 'none';
           }
         })
         .catch(function(){
@@ -999,16 +1046,25 @@
         skillsHtml += '<span class="brief-skill-chip">+' + extraCount + ' more</span>';
       }
 
+      var pitchText = (b.pitchCount || 0) + ' Pitches';
+      if (b.experienceLevel) {
+        pitchText = escapeHtml(b.experienceLevel) + ' \u00b7 ' + pitchText;
+      }
+
       return (
         '<a class="brief-card fade-up" href="/brief.html?id=' + encodeURIComponent(b.id) + '">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
-            '<span class="badge ' + categoryBadgeClass(b.category) + '">' + escapeHtml(b.category || 'Other') + '</span>' +
-            '<span style="font-size:12px;color:rgba(13,33,69,0.45);white-space:nowrap;">' + (b.pitchCount || 0) + ' Pitches</span>' +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+              '<span class="badge ' + categoryBadgeClass(b.category) + '">' + escapeHtml(b.category || 'Other') + '</span>' +
+              (b.isUrgent ? '<span class="badge badge-red">Urgent</span>' : '') +
+            '</div>' +
+            '<span style="font-size:12px;color:rgba(13,33,69,0.45);white-space:nowrap;">' + pitchText + '</span>' +
           '</div>' +
           '<div class="brief-title">' + escapeHtml(b.title) + '</div>' +
           '<div class="brief-desc">' + escapeHtml((b.description || '').slice(0, 120)) + '</div>' +
           '<div style="font-size:13px;font-weight:600;color:#2d8a5e;margin-top:12px;">Budget: ' + formatBudget(b.budgetMin, b.budgetMax) + '</div>' +
           '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:4px;">Due by ' + escapeHtml(formatDeadline(b.deadline)) + '</div>' +
+          (b.duration ? '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:2px;">' + escapeHtml(b.duration) + '</div>' : '') +
           (skillsHtml ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">' + skillsHtml + '</div>' : '') +
           '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0;">' +
             '<div class="brief-avatar">' + escapeHtml(initialsFor(b.buyerName)) + '</div>' +
@@ -1046,6 +1102,61 @@
     };
 
     /* ────────────────────────────────────
+       SEARCH (server-side — searches ALL Briefs, not just loaded pages)
+    ──────────────────────────────────── */
+    function searchBriefs(term) {
+      var grid = document.getElementById('briefs-grid');
+      var countEl = document.getElementById('briefs-results-count');
+      var loadMoreBtn = document.getElementById('briefs-load-more-btn');
+
+      if (!term) {
+        // Clear search — return to normal browse mode
+        isSearchMode = false;
+        searchResults = [];
+        loadMoreBtn.style.display = (lastCursor) ? 'inline-flex' : 'none';
+        renderBriefs();
+        return;
+      }
+
+      isSearchMode = true;
+      loadMoreBtn.style.display = 'none';
+
+      // Show loading skeleton
+      grid.innerHTML = skeletonHtml(6);
+      countEl.textContent = 'Searching\u2026';
+
+      var searchUrl = '/.netlify/functions/get-briefs?q=' + encodeURIComponent(term);
+      if (selectedCategory) { searchUrl += '&category=' + encodeURIComponent(selectedCategory); }
+      if (budgetMinFilter !== null && !isNaN(budgetMinFilter)) { searchUrl += '&budgetMin=' + budgetMinFilter; }
+      if (budgetMaxFilter !== null && !isNaN(budgetMaxFilter)) { searchUrl += '&budgetMax=' + budgetMaxFilter; }
+
+      fetch(searchUrl)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          searchResults = (data && data.briefs) || [];
+          countEl.textContent = searchResults.length + (searchResults.length === 1 ? ' Brief' : ' Briefs') + ' found for "' + term + '"';
+          if (!searchResults.length) {
+            var canPostBrief = window._kreddloRole === 'buyer';
+            grid.innerHTML =
+              '<div class="empty-state">' +
+                '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 6px;">No Briefs match "' + escapeHtml(term) + '"</p>' +
+                '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0 0 18px;">Try different keywords or browse all Briefs.</p>' +
+                (canPostBrief ? '<a href="/post-brief.html" class="btn-green" style="display:inline-flex;">Post a Brief</a>' : '') +
+              '</div>';
+            return;
+          }
+          grid.innerHTML = searchResults.map(briefCardHtml).join('');
+        })
+        .catch(function(){
+          countEl.textContent = 'Search failed. Try again.';
+          grid.innerHTML =
+            '<div class="empty-state">' +
+              '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0;">Could not complete search. Check your connection and try again.</p>' +
+            '</div>';
+        });
+    }
+
+    /* ────────────────────────────────────
        FILTER BAR WIRING
     ──────────────────────────────────── */
     document.getElementById('briefs-category-bar').addEventListener('click', function(e){
@@ -1054,6 +1165,13 @@
       document.querySelectorAll('#briefs-category-bar .filter-pill').forEach(function(p){ p.classList.remove('active'); });
       btn.classList.add('active');
       selectedCategory = btn.getAttribute('data-category') || '';
+      if (searchTerm) {
+        document.getElementById('briefs-search-input').value = '';
+        document.getElementById('briefs-search-clear').style.display = 'none';
+        searchTerm = '';
+        isSearchMode = false;
+        searchResults = [];
+      }
       renderBriefs();
     });
 
@@ -1065,14 +1183,22 @@
       renderBriefs();
     });
 
-    var searchDebounce = null;
     document.getElementById('briefs-search-input').addEventListener('input', function(e){
       clearTimeout(searchDebounce);
       var val = e.target.value;
+      document.getElementById('briefs-search-clear').style.display = val.trim() ? 'block' : 'none';
       searchDebounce = setTimeout(function(){
         searchTerm = val.trim();
-        renderBriefs();
-      }, 250);
+        searchBriefs(searchTerm);
+      }, 350);
+    });
+
+    document.getElementById('briefs-search-clear').addEventListener('click', function(){
+      var input = document.getElementById('briefs-search-input');
+      input.value = '';
+      searchTerm = '';
+      this.style.display = 'none';
+      searchBriefs('');
     });
 
     document.getElementById('briefs-load-more-btn').addEventListener('click', function(){

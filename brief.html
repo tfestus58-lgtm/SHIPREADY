@@ -516,6 +516,7 @@
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span class="badge" id="brief-category-badge"></span>
             <span class="badge" id="brief-status-badge"></span>
+            <span class="badge badge-red" id="brief-urgent-badge" style="display:none;">Urgent</span>
             <span style="font-size:12px;color:rgba(13,33,69,0.45);" id="brief-pitch-count-text"></span>
           </div>
 
@@ -543,6 +544,26 @@
             <div>
               <div class="lbl">Category</div>
               <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-category-text"></div>
+            </div>
+            <div>
+              <div class="lbl">Experience Level</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-experience-text"></div>
+            </div>
+            <div>
+              <div class="lbl">Duration</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-duration-text"></div>
+            </div>
+            <div>
+              <div class="lbl">Engagement Type</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-engagement-text"></div>
+            </div>
+            <div>
+              <div class="lbl">Language</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-language-text"></div>
+            </div>
+            <div id="brief-location-row" style="display:none;">
+              <div class="lbl">Preferred Location</div>
+              <div style="font-size:14px;font-weight:600;color:#0d2145;margin-top:4px;" id="brief-location-text"></div>
             </div>
             <div>
               <div class="lbl">Skills</div>
@@ -747,9 +768,11 @@
     }
 
     function categoryBadgeClass(cat) {
-      if (cat === 'Design') return 'badge-green';
-      if (cat === 'Development') return 'badge-blue';
-      if (cat === 'Marketing') return 'badge-amber';
+      if (!cat) return 'badge-grey';
+      if (cat === 'Development & Tech' || cat === 'AI & Machine Learning' || cat === 'Blockchain & Web3' || cat === 'Cybersecurity') return 'badge-blue';
+      if (cat === 'Design & Creative' || cat === 'Photography' || cat === '3D & CAD' || cat === 'Video & Animation') return 'badge-green';
+      if (cat === 'Marketing & Growth' || cat === 'Sales & CRM' || cat === 'Business & Finance') return 'badge-amber';
+      if (cat === 'Legal & Compliance' || cat === 'Engineering & Architecture' || cat === 'Data & Analytics') return 'badge-blue';
       return 'badge-grey';
     }
 
@@ -764,6 +787,10 @@
     var briefId = new URLSearchParams(window.location.search).get('id') || '';
     var currentBrief = null;
     var pitchAlreadyLoaded = false;
+    // Default cost shown before get-credits.js responds — kept in sync with
+    // the admin-configurable "Credits Per Pitch" default in get-settings.js.
+    // fetchCreditsForDisplay() overwrites this with the real value once it loads.
+    var _creditCost = 2;
 
     /* ────────────────────────────────────
        LOAD BRIEF
@@ -809,6 +836,9 @@
       statusBadge.className = 'badge ' + (isOpen ? 'badge-green' : 'badge-grey');
       statusBadge.textContent = isOpen ? 'Open' : 'Closed';
 
+      var urgentBadge = document.getElementById('brief-urgent-badge');
+      urgentBadge.style.display = b.isUrgent ? 'inline-flex' : 'none';
+
       document.getElementById('brief-pitch-count-text').textContent =
         (b.pitchCount || 0) + (b.pitchCount === 1 ? ' Pitch submitted' : ' Pitches submitted');
 
@@ -820,6 +850,18 @@
       document.getElementById('brief-budget').textContent = formatBudget(b.budgetMin, b.budgetMax);
       document.getElementById('brief-deadline').textContent = formatDeadline(b.deadline);
       document.getElementById('brief-category-text').textContent = b.category || 'Other';
+      document.getElementById('brief-experience-text').textContent = b.experienceLevel || '\u2014';
+      document.getElementById('brief-duration-text').textContent = b.duration || '\u2014';
+      document.getElementById('brief-engagement-text').textContent = b.engagementType || '\u2014';
+      document.getElementById('brief-language-text').textContent = b.language || '\u2014';
+
+      var locationRow = document.getElementById('brief-location-row');
+      if (b.preferredLocation) {
+        document.getElementById('brief-location-text').textContent = b.preferredLocation;
+        locationRow.style.display = 'block';
+      } else {
+        locationRow.style.display = 'none';
+      }
 
       var skillsList = document.getElementById('brief-skills-list');
       var skills = b.skills || [];
@@ -877,6 +919,18 @@
         return;
       }
 
+      // Role is null or unrecognised — Firestore read may not have finished.
+      // Show a neutral loading state and retry once after 1.5s.
+      if (role === null || (role !== 'buyer' && role !== 'freelancer')) {
+        container.innerHTML = (
+          '<div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:28px 20px;text-align:center;">' +
+          '<p style="font-size:14px;font-weight:500;color:rgba(13,33,69,0.55);margin:0;">Checking your account…</p>' +
+          '</div>'
+        );
+        setTimeout(function() { renderPitchSection(); }, 1500);
+        return;
+      }
+
       if (role === 'freelancer') {
         if (!pitchAlreadyLoaded) {
           pitchAlreadyLoaded = true;
@@ -917,7 +971,8 @@
     function buyerCantPitchCardHtml() {
       return (
         '<div class="brief-detail-card" style="text-align:center;">' +
-          '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 16px;">Buyers cannot submit Pitches. Post your own Brief instead.</p>' +
+          '<p style="font-weight:700;color:#0d2145;font-size:16px;margin:0 0 6px;">This section is for freelancers.</p>' +
+          '<p style="font-size:14px;color:rgba(13,33,69,0.55);margin:0 0 18px;line-height:1.6;">As a buyer, you can post your own Brief and receive Pitches from top freelancers instead.</p>' +
           '<a href="/post-brief.html" class="btn-green" style="display:inline-flex;">Post a Brief</a>' +
         '</div>'
       );
@@ -956,8 +1011,8 @@
 
           '<div id="pitch-error" style="display:none;font-size:13px;font-weight:600;color:#c81e1e;margin-top:16px;"></div>' +
 
-          '<button id="pitch-submit-btn" class="btn-green" style="width:100%;margin-top:20px;">Submit Pitch \u2014 1 Credit</button>' +
-          '<p style="font-size:12px;color:rgba(13,33,69,0.45);text-align:center;margin:10px 0 0;" id="pitch-credit-note">Submitting uses 1 Kreddlo Credit.</p>' +
+          '<button id="pitch-submit-btn" class="btn-green" style="width:100%;margin-top:20px;">Submit Pitch \u2014 ' + _creditCost + ' Credit' + (_creditCost !== 1 ? 's' : '') + '</button>' +
+          '<p style="font-size:12px;color:rgba(13,33,69,0.45);text-align:center;margin:10px 0 0;" id="pitch-credit-note">Submitting uses ' + _creditCost + ' Kreddlo Credit' + (_creditCost !== 1 ? 's' : '') + '.</p>' +
 
           '<div id="pitch-success" style="display:none;text-align:center;">' +
             '<p style="font-weight:800;color:#0d2145;font-size:17px;margin:0 0 6px;">Pitch Submitted</p>' +
@@ -996,11 +1051,18 @@
         return res.json();
       }).then(function(data){
         var total = data && typeof data.totalAvailable === 'number' ? data.totalAvailable : null;
+        if (data && typeof data.creditCost === 'number' && data.creditCost >= 1) {
+          _creditCost = Math.floor(data.creditCost);
+          var submitBtn = document.getElementById('pitch-submit-btn');
+          if (submitBtn) {
+            submitBtn.textContent = 'Submit Pitch \u2014 ' + _creditCost + ' Credit' + (_creditCost !== 1 ? 's' : '');
+          }
+        }
         if (total === null) return;
         pill.style.display = 'inline-flex';
         pill.textContent = total + (total === 1 ? ' Credit remaining today' : ' Credits remaining today');
         pill.className = 'badge ' + (total > 3 ? 'badge-green' : (total >= 1 ? 'badge-amber' : 'badge-red'));
-        if (note) note.textContent = 'Submitting uses 1 Kreddlo Credit. You have ' + total + ' remaining.';
+        if (note) note.textContent = 'Submitting uses ' + _creditCost + ' Kreddlo Credit' + (_creditCost !== 1 ? 's' : '') + '. You have ' + total + ' remaining.';
       }).catch(function(){
         // Silently keep the generic note — no credits endpoint available yet.
       });

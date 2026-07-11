@@ -210,13 +210,26 @@ body{overflow-x:hidden!important}
             <label class="field-label" for="bf-category">Category <span class="field-req">*</span></label>
             <select id="bf-category" class="input-field" onchange="onFieldChange()">
               <option value="">Select a category</option>
-              <option value="Design">Design</option>
-              <option value="Development">Development</option>
-              <option value="Writing">Writing</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Video">Video</option>
-              <option value="Audio">Audio</option>
-              <option value="Business">Business</option>
+              <option value="Design & Creative">Design & Creative</option>
+              <option value="Development & Tech">Development & Tech</option>
+              <option value="Writing & Translation">Writing & Translation</option>
+              <option value="Marketing & Growth">Marketing & Growth</option>
+              <option value="Video & Animation">Video & Animation</option>
+              <option value="Audio & Music">Audio & Music</option>
+              <option value="Business & Finance">Business & Finance</option>
+              <option value="Data & Analytics">Data & Analytics</option>
+              <option value="Legal & Compliance">Legal & Compliance</option>
+              <option value="Engineering & Architecture">Engineering & Architecture</option>
+              <option value="Sales & CRM">Sales & CRM</option>
+              <option value="Admin & Operations">Admin & Operations</option>
+              <option value="Customer Support">Customer Support</option>
+              <option value="Photography">Photography</option>
+              <option value="3D & CAD">3D & CAD</option>
+              <option value="AI & Machine Learning">AI & Machine Learning</option>
+              <option value="Blockchain & Web3">Blockchain & Web3</option>
+              <option value="Cybersecurity">Cybersecurity</option>
+              <option value="Education & Training">Education & Training</option>
+              <option value="Health & Wellness">Health & Wellness</option>
               <option value="Other">Other</option>
             </select>
             <div class="field-error" id="bf-category-error">Please select a category.</div>
@@ -265,6 +278,100 @@ body{overflow-x:hidden!important}
           </div>
         </div>
 
+        <!-- SECTION D: Project Scope -->
+        <div class="form-card">
+          <p class="section-lbl">Project Scope</p>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-experience">Experience Level Required <span class="field-req">*</span></label>
+            <select id="bf-experience" class="input-field" onchange="onFieldChange()">
+              <option value="">Select level</option>
+              <option value="Entry">Entry — Newer freelancers, straightforward tasks</option>
+              <option value="Intermediate">Intermediate — Some experience required</option>
+              <option value="Expert">Expert — Highly skilled, complex work</option>
+            </select>
+            <div class="field-error" id="bf-experience-error">Please select an experience level.</div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-duration">Estimated Duration <span class="field-req">*</span></label>
+            <select id="bf-duration" class="input-field" onchange="onFieldChange()">
+              <option value="">Select duration</option>
+              <option value="Less than a week">Less than a week</option>
+              <option value="1-2 weeks">1 to 2 weeks</option>
+              <option value="1 month">About 1 month</option>
+              <option value="1-3 months">1 to 3 months</option>
+              <option value="3-6 months">3 to 6 months</option>
+              <option value="6+ months">More than 6 months</option>
+              <option value="Ongoing">Ongoing / Long-term</option>
+            </select>
+            <div class="field-error" id="bf-duration-error">Please select a duration.</div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-engagement">Engagement Type <span class="field-req">*</span></label>
+            <select id="bf-engagement" class="input-field" onchange="onFieldChange()">
+              <option value="">Select type</option>
+              <option value="One-time">One-time project</option>
+              <option value="Ongoing">Ongoing collaboration</option>
+              <option value="Part-time">Part-time (regular hours)</option>
+              <option value="Full-time">Full-time contract</option>
+            </select>
+            <div class="field-error" id="bf-engagement-error">Please select an engagement type.</div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="bf-location">Preferred Freelancer Location (optional)</label>
+            <input id="bf-location" type="text" class="input-field" maxlength="100" placeholder="e.g. Anywhere, Nigeria, United States" oninput="onFieldChange()"/>
+          </div>
+
+          <div class="field-group" style="margin-bottom:0;">
+            <label class="field-label" for="bf-language">Communication Language <span class="field-req">*</span></label>
+            <input id="bf-language" type="text" class="input-field" maxlength="60" value="English" placeholder="e.g. English, French" oninput="onFieldChange()"/>
+            <div class="field-error" id="bf-language-error">Language must be between 2 and 60 characters.</div>
+          </div>
+
+          <p class="field-help" style="background:rgba(13,33,69,0.04);border-radius:10px;padding:10px 12px;margin-top:6px;">You can share files, references, and briefs directly in the project chat once a freelancer is hired.</p>
+
+          <!-- Urgent toggle -->
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;">
+            <div>
+              <label class="field-label" style="margin-bottom:4px;">Mark as Urgent</label>
+              <p class="field-help" style="margin-top:0;">Urgent briefs appear with a highlighted badge and receive more Pitches.</p>
+            </div>
+            <div id="bf-urgent-toggle"
+              onclick="toggleUrgent()"
+              role="switch"
+              tabindex="0"
+              aria-checked="false"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleUrgent();}"
+              style="width:48px;height:28px;border-radius:50px;background:#e2e8f0;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;">
+              <div style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.2);transition:transform .2s;"></div>
+            </div>
+          </div>
+
+          <!-- Visibility -->
+          <div style="margin-top:20px;">
+            <label class="field-label" style="display:block;margin-bottom:10px;">Brief Visibility</label>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label id="bf-visibility-public-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:13px 14px;background:rgba(45,138,94,0.06);border:1.5px solid rgba(45,138,94,0.30);border-radius:12px;transition:border-color .15s,background .15s;">
+                <input type="radio" name="bf-visibility" id="bf-visibility-public" value="public" checked onchange="onVisibilityChange()" style="width:16px;height:16px;accent-color:#2d8a5e;flex-shrink:0;cursor:pointer;"/>
+                <div style="min-width:0;">
+                  <p style="font-size:13px;font-weight:700;color:#0d2145;margin:0 0 2px;">Public</p>
+                  <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:0;">Visible to all freelancers on the Briefs listing.</p>
+                </div>
+              </label>
+              <label id="bf-visibility-private-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:13px 14px;background:rgba(13,33,69,0.03);border:1.5px solid #e2e8f0;border-radius:12px;transition:border-color .15s,background .15s;">
+                <input type="radio" name="bf-visibility" id="bf-visibility-private" value="private" onchange="onVisibilityChange()" style="width:16px;height:16px;accent-color:#2d8a5e;flex-shrink:0;cursor:pointer;"/>
+                <div style="min-width:0;">
+                  <p style="font-size:13px;font-weight:700;color:#0d2145;margin:0 0 2px;">Private (Invite only)</p>
+                  <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:0;">Not shown on the public listing, shareable via direct link only.</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <!-- LIVE PREVIEW -->
         <div style="margin-bottom:18px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -294,6 +401,7 @@ body{overflow-x:hidden!important}
    SKILLS TAG INPUT (pattern copied from profile-setup.html)
 ══════════════════════════════════════════════ */
 var _skills = [];
+var _isUrgent = false;
 
 function escHtml(s) {
   return String(s == null ? '' : s)
@@ -363,6 +471,33 @@ function hideFieldError(id) {
 }
 
 /* ══════════════════════════════════════════════
+   URGENT TOGGLE
+══════════════════════════════════════════════ */
+function toggleUrgent() {
+  _isUrgent = !_isUrgent;
+  var toggle = document.getElementById('bf-urgent-toggle');
+  if (!toggle) return;
+  toggle.style.background = _isUrgent ? '#2d8a5e' : '#e2e8f0';
+  toggle.setAttribute('aria-checked', _isUrgent ? 'true' : 'false');
+  toggle.querySelector('div').style.transform = _isUrgent ? 'translateX(20px)' : 'translateX(0)';
+  renderPreview();
+}
+
+/* ══════════════════════════════════════════════
+   VISIBILITY RADIO CARDS
+══════════════════════════════════════════════ */
+function onVisibilityChange() {
+  var publicChecked = document.getElementById('bf-visibility-public').checked;
+  var publicLabel = document.getElementById('bf-visibility-public-label');
+  var privateLabel = document.getElementById('bf-visibility-private-label');
+  publicLabel.style.background = publicChecked ? 'rgba(45,138,94,0.06)' : 'rgba(13,33,69,0.03)';
+  publicLabel.style.borderColor = publicChecked ? 'rgba(45,138,94,0.30)' : '#e2e8f0';
+  privateLabel.style.background = !publicChecked ? 'rgba(45,138,94,0.06)' : 'rgba(13,33,69,0.03)';
+  privateLabel.style.borderColor = !publicChecked ? 'rgba(45,138,94,0.30)' : '#e2e8f0';
+  renderPreview();
+}
+
+/* ══════════════════════════════════════════════
    DEADLINE MIN = TODAY
 ══════════════════════════════════════════════ */
 (function() {
@@ -379,9 +514,11 @@ function hideFieldError(id) {
 var _currentUserName = 'Buyer';
 
 function categoryBadgeClass(cat) {
-  if (cat === 'Design') return 'badge-green';
-  if (cat === 'Development') return 'badge-blue';
-  if (cat === 'Marketing') return 'badge-amber';
+  if (!cat) return 'badge-grey';
+  if (cat === 'Development & Tech' || cat === 'AI & Machine Learning' || cat === 'Blockchain & Web3' || cat === 'Cybersecurity') return 'badge-blue';
+  if (cat === 'Design & Creative' || cat === 'Photography' || cat === '3D & CAD' || cat === 'Video & Animation') return 'badge-green';
+  if (cat === 'Marketing & Growth' || cat === 'Sales & CRM' || cat === 'Business & Finance') return 'badge-amber';
+  if (cat === 'Legal & Compliance' || cat === 'Engineering & Architecture' || cat === 'Data & Analytics') return 'badge-blue';
   return 'badge-grey';
 }
 function formatBudget(min, max) {
@@ -409,11 +546,21 @@ function renderPreview() {
   var budgetMin = document.getElementById('bf-budget-min').value;
   var budgetMax = document.getElementById('bf-budget-max').value;
   var deadline = document.getElementById('bf-deadline').value;
+  var experienceLevel = document.getElementById('bf-experience').value;
+  var duration = document.getElementById('bf-duration').value;
+  var engagementType = document.getElementById('bf-engagement').value;
+  var isPrivate = document.getElementById('bf-visibility-private') && document.getElementById('bf-visibility-private').checked;
 
   var shownSkills = _skills.slice(0, 3);
   var extraCount = _skills.length - shownSkills.length;
   var skillsHtml = shownSkills.map(function(s){ return '<span class="brief-skill-chip">' + escHtml(s) + '</span>'; }).join('');
   if (extraCount > 0) skillsHtml += '<span class="brief-skill-chip">+' + extraCount + ' more</span>';
+
+  var metaHtml = '';
+  if (experienceLevel) metaHtml += '<span class="badge badge-navy">' + escHtml(experienceLevel) + '</span>';
+  if (_isUrgent) metaHtml += '<span class="badge badge-red">Urgent</span>';
+
+  var scopeLine = [duration, engagementType].filter(Boolean).join(' \u00b7 ');
 
   var wrap = document.getElementById('preview-card-wrap');
   wrap.innerHTML =
@@ -426,7 +573,10 @@ function renderPreview() {
       '<div class="brief-desc">' + escHtml((description || 'Your description preview will appear here.').slice(0, 120)) + '</div>' +
       '<div style="font-size:13px;font-weight:600;color:#2d8a5e;margin-top:12px;">Budget: ' + (budgetMin || budgetMax ? formatBudget(budgetMin, budgetMax) : '$0\u2013$0') + '</div>' +
       '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:4px;">' + (deadline ? 'Due by ' + escHtml(formatDeadline(deadline)) : 'No deadline set') + '</div>' +
+      (scopeLine ? '<div style="font-size:12px;color:rgba(13,33,69,0.50);margin-top:4px;">' + escHtml(scopeLine) + '</div>' : '') +
+      (metaHtml ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">' + metaHtml + '</div>' : '') +
       (skillsHtml ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">' + skillsHtml + '</div>' : '') +
+      (isPrivate ? '<div style="font-size:11px;font-weight:600;color:rgba(13,33,69,0.45);margin-top:10px;">Private — not shown on public listing</div>' : '') +
       '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0;">' +
         '<div class="brief-avatar">' + escHtml(initialsFor(_currentUserName)) + '</div>' +
         '<span style="font-size:12px;font-weight:600;color:#0d2145;">' + escHtml(_currentUserName) + '</span>' +
@@ -574,6 +724,46 @@ function validateForm() {
     hideFieldError('bf-skills-error');
   }
 
+  var experienceLevel = document.getElementById('bf-experience').value;
+  if (!experienceLevel) {
+    showFieldError('bf-experience-error');
+    document.getElementById('bf-experience').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-experience-error');
+    document.getElementById('bf-experience').classList.remove('error');
+  }
+
+  var duration = document.getElementById('bf-duration').value;
+  if (!duration) {
+    showFieldError('bf-duration-error');
+    document.getElementById('bf-duration').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-duration-error');
+    document.getElementById('bf-duration').classList.remove('error');
+  }
+
+  var engagementType = document.getElementById('bf-engagement').value;
+  if (!engagementType) {
+    showFieldError('bf-engagement-error');
+    document.getElementById('bf-engagement').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-engagement-error');
+    document.getElementById('bf-engagement').classList.remove('error');
+  }
+
+  var language = document.getElementById('bf-language').value.trim();
+  if (language.length < 2 || language.length > 60) {
+    showFieldError('bf-language-error');
+    document.getElementById('bf-language').classList.add('error');
+    ok = false;
+  } else {
+    hideFieldError('bf-language-error');
+    document.getElementById('bf-language').classList.remove('error');
+  }
+
   return ok;
 }
 
@@ -598,7 +788,14 @@ function submitBrief() {
     budgetMax: Number(document.getElementById('bf-budget-max').value),
     deadline: document.getElementById('bf-deadline').value,
     category: document.getElementById('bf-category').value,
-    skills: _skills.slice()
+    skills: _skills.slice(),
+    experienceLevel: document.getElementById('bf-experience').value,
+    duration: document.getElementById('bf-duration').value,
+    engagementType: document.getElementById('bf-engagement').value,
+    preferredLocation: document.getElementById('bf-location').value.trim(),
+    language: document.getElementById('bf-language').value.trim(),
+    isUrgent: _isUrgent,
+    visibility: (document.getElementById('bf-visibility-private').checked ? 'private' : 'public')
   };
 
   var btn = document.getElementById('bf-submit-btn');

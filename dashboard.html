@@ -1370,10 +1370,23 @@ function populateReferCard(userData, referralProgramEnabled) {
     if (earnCard)     earnCard.style.display     = 'block';
     if (discoverCard) discoverCard.style.display  = 'none';
 
-    // Earned value
-    var earned = Number(userData.affiliateTotalEarned) || 0;
+    // Earned value — per-currency map (affiliateTotalEarnedByCurrency), written
+    // natively by the payment webhooks so a $10 USD sale and a ₦5,000 NGN sale
+    // are never blended into one meaningless raw number.
+    var earnedMap    = userData.affiliateTotalEarnedByCurrency || {};
+    var hasEarnedMap = Object.keys(earnedMap).some(function(c) { return Number(earnedMap[c]) > 0; });
     var earnedEl = document.getElementById('refer-earned-val');
-    if (earnedEl) earnedEl.textContent = '$' + earned.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (earnedEl) {
+      if (hasEarnedMap) {
+        earnedEl.innerHTML = renderCurrencyLines(earnedMap);
+      } else {
+        // Legacy fallback: accounts with commissions earned before this fix
+        // have a raw blended total but no per-currency breakdown yet. Show
+        // it plainly until new commissions populate the currency map.
+        var legacyEarned = Number(userData.affiliateTotalEarned) || 0;
+        earnedEl.textContent = fmtCurrency(legacyEarned, 'USD');
+      }
+    }
 
     // Referral link — show full URL, not truncated
     var linkEl = document.getElementById('refer-link-display');
@@ -1398,8 +1411,6 @@ function escHtml(str) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-function fmt(n) { return '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
-
 // ── Currency helpers — delegate to shared module (assets/shared.js) ──────────
 // shared.js loads before this script so window.kreddloCurrency is always ready.
 function fmtCurrency(amount, currency) {

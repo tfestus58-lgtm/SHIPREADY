@@ -1859,6 +1859,7 @@ if ('serviceWorker' in navigator) {
     if (!user) { window.location.href = '/login.html'; return; }
     getDoc(doc(window.db, 'users', user.uid)).then(function(snap) {
       var role = snap.exists() ? snap.data().role : null;
+      if (role === 'buyer') { window.location.href = '/buyer-dashboard.html'; return; }
       if (role && role !== 'freelancer') { window.location.href = '/login.html'; return; }
       var affiliateEnabled = snap.exists() ? (snap.data().affiliateEnabled === true) : false;
       if (typeof window._boot === 'function') window._boot(user, affiliateEnabled);

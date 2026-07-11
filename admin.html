@@ -1240,10 +1240,65 @@ input[type=range]::-moz-range-thumb {
             <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:6px 0 0 0;line-height:1.5;">The minimum balance an affiliate must have to request a payout.</p>
           </div>
 
+          <!-- Flutterwave Payout Minimums divider -->
+          <div style="grid-column:1/-1;padding-top:4px;">
+            <p style="font-size:12px;font-weight:700;color:rgba(13,33,69,0.45);letter-spacing:1.2px;text-transform:uppercase;margin:0 0 4px 0;">Flutterwave Payout Minimums</p>
+            <div style="height:1px;background:#e2e8f0;"></div>
+          </div>
+
+          <!-- Per-currency minimum bank withdrawal -->
+          <div style="grid-column:1/-1;">
+            <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:0 0 12px 0;line-height:1.5;">
+              Minimum bank withdrawal per currency, in that currency's own units — not USD. Every payout in these
+              currencies is a real NGN→X conversion from Flutterwave's side (even a "same-currency-looking" GHS→GHS
+              payout), so it always carries a live Flutterwave fee. Set each minimum high enough that the fee never
+              eats an unreasonable share of a withdrawal. NGN is excluded — it's Flutterwave's settlement currency,
+              so NGN payouts never incur this fee.
+            </p>
+            <div id="min-withdraw-currency-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;">
+              <!-- Populated by MIN_WITHDRAW_CURRENCIES below -->
+            </div>
+            <p style="font-size:11px;font-weight:500;color:rgba(13,33,69,0.40);margin:10px 0 0 0;line-height:1.5;">
+              Based on Flutterwave's published fees as of implementation — not a permanent guarantee. Flutterwave's
+              fees can drift over time, so revisit these periodically.
+            </p>
+          </div>
+
           <!-- Kreddlo Credits divider -->
           <div style="grid-column:1/-1;padding-top:4px;">
             <p style="font-size:12px;font-weight:700;color:rgba(13,33,69,0.45);letter-spacing:1.2px;text-transform:uppercase;margin:0 0 4px 0;">Kreddlo Credits</p>
             <div style="height:1px;background:#e2e8f0;"></div>
+          </div>
+
+          <!-- Daily Free Credits Toggle -->
+          <div style="grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px;background:rgba(45,138,94,0.05);border-radius:14px;border:1px solid rgba(45,138,94,0.14);">
+            <div style="min-width:0;flex:1;">
+              <label class="lbl" style="display:block;margin-bottom:4px;">Daily Free Credits</label>
+              <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:0;line-height:1.5;">When enabled, every freelancer receives 10 free Kreddlo Credits at midnight UTC each day. Disable this when you are ready to move to a fully paid credits model.</p>
+            </div>
+            <div id="toggle-daily-free-credits"
+              onclick="toggleDailyFreeCredits()"
+              role="switch"
+              aria-checked="true"
+              tabindex="0"
+              onkeydown="if(event.key==='Enter'||event.key===' ')toggleDailyFreeCredits()"
+              style="width:48px;height:28px;border-radius:50px;background:#2d8a5e;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;">
+              <div style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.2);transition:transform .2s;transform:translateX(20px);"></div>
+            </div>
+          </div>
+
+          <!-- Daily Free Credit Amount -->
+          <div>
+            <label class="lbl" style="display:block;margin-bottom:8px;">Daily Free Credits Amount</label>
+            <input type="number" id="set-daily-free-credits-amount" class="input-field" value="10" min="0" max="1000" step="1"/>
+            <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:6px 0 0 0;line-height:1.5;">How many free credits each freelancer receives per day when Daily Free Credits is enabled. Default 10. Set to 0 to effectively disable without turning off the toggle.</p>
+          </div>
+
+          <!-- Credits Per Pitch -->
+          <div>
+            <label class="lbl" style="display:block;margin-bottom:8px;">Credits Per Pitch</label>
+            <input type="number" id="set-credits-per-pitch" class="input-field" value="2" min="1" max="100" step="1"/>
+            <p style="font-size:12px;font-weight:500;color:rgba(13,33,69,0.50);margin:6px 0 0 0;line-height:1.5;">How many Kreddlo Credits are deducted when a freelancer submits a Pitch on a Brief. Default 2. Increase this as the platform scales to control application volume.</p>
           </div>
 
           <!-- Starter bundle -->
@@ -1522,9 +1577,6 @@ input[type=range]::-moz-range-thumb {
   </div>
 </div>
 
-  </div>
-</div>
-
 <!-- MAINTENANCE SECTION -->
     <div id="section-maintenance" class="admin-section">
   <div style="margin-bottom:20px;">
@@ -1576,6 +1628,9 @@ input[type=range]::-moz-range-thumb {
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+
+  </div><!-- /#page-content -->
+</div><!-- /#main-wrap -->
 
 <script>
 /* ── Issue 1 fix: getAdminToken() ────────────────────────────────────────────
@@ -3041,8 +3096,28 @@ var SETTINGS_FIELDS = [
   { id: 'set-credit-pro-price',         min: 0, max: null,   key: 'creditBundleProPrice',         parse: parseFloat },
   { id: 'set-credit-power-credits',     min: 1, max: 100000, key: 'creditBundlePowerCredits',     parse: parseInt   },
   { id: 'set-credit-power-price',       min: 0, max: null,   key: 'creditBundlePowerPrice',       parse: parseFloat },
-  { id: 'set-monthly-free-credit-amount', min: 0, max: 100000, key: 'monthlyFreeCreditAmount',    parse: parseInt   }
+  { id: 'set-monthly-free-credit-amount', min: 0, max: 100000, key: 'monthlyFreeCreditAmount',    parse: parseInt   },
+  { id: 'set-daily-free-credits-amount', min: 0, max: 1000, key: 'dailyFreeCreditsAmount', parse: parseInt },
+  { id: 'set-credits-per-pitch',         min: 1, max: 100,  key: 'creditsPerPitch',         parse: parseInt }
 ];
+
+/* -- Per-currency minimum bank withdrawal (Step 3 fix) --
+   Handled separately from SETTINGS_FIELDS above because these live under a
+   single nested Firestore key (config/platform.minWithdrawalByCurrency),
+   not as individual top-level fields. NGN is intentionally excluded — see
+   the note rendered above the grid in the settings markup. */
+var MIN_WITHDRAW_CURRENCIES = ['GHS', 'KES', 'ZAR', 'UGX', 'TZS', 'RWF', 'ETB', 'XOF', 'XAF', 'MWK', 'ZMW'];
+
+function renderMinWithdrawCurrencyGrid() {
+  var container = document.getElementById('min-withdraw-currency-grid');
+  if (!container) return;
+  container.innerHTML = MIN_WITHDRAW_CURRENCIES.map(function(cur) {
+    return '<div>' +
+      '<label class="lbl" style="display:block;margin-bottom:6px;font-size:12px;">' + cur + '</label>' +
+      '<input type="number" id="set-min-withdraw-' + cur + '" class="input-field" value="0" min="0" step="0.01"/>' +
+      '</div>';
+  }).join('');
+}
 
 /* -- Toggle visual helper -- */
 var GATEWAY_STATE = { stripe: false, flutterwave: false, crypto: false };
@@ -3086,6 +3161,7 @@ function toggleGateway(gateway) {
 /* Change 4: loadSettings — reads Firestore and pre-fills all fields */
 function loadSettings() {
   if (!window.firestore || !window.db) return;
+  renderMinWithdrawCurrencyGrid();
   var _f = window.firestore;
   _f.getDoc(_f.doc(window.db, 'config', 'platform')).then(function(snap) {
     if (!snap.exists()) return;
@@ -3094,11 +3170,26 @@ function loadSettings() {
       var el = document.getElementById(f.id);
       if (el && d[f.key] !== undefined) el.value = d[f.key];
     });
+    if (d.minWithdrawalByCurrency) {
+      MIN_WITHDRAW_CURRENCIES.forEach(function(cur) {
+        var el = document.getElementById('set-min-withdraw-' + cur);
+        if (el && d.minWithdrawalByCurrency[cur] !== undefined) el.value = d.minWithdrawalByCurrency[cur];
+      });
+    }
     if (d.stripeEnabled       !== undefined) setToggleVisual('stripe',       !!d.stripeEnabled);
     if (d.flutterwaveEnabled  !== undefined) setToggleVisual('flutterwave',  !!d.flutterwaveEnabled);
     if (d.cryptoEnabled       !== undefined) setToggleVisual('crypto',       !!d.cryptoEnabled);
     if (d.referralProgramEnabled !== undefined) setReferralToggle(!!d.referralProgramEnabled);
     if (d.monthlyFreeCreditEnabled !== undefined) setMonthlyFreeCreditToggle(!!d.monthlyFreeCreditEnabled);
+    if (d.dailyFreeCreditsEnabled !== undefined) {
+      DAILY_FREE_CREDITS_ON = !!d.dailyFreeCreditsEnabled;
+      var dfcEl = document.getElementById('toggle-daily-free-credits');
+      if (dfcEl) {
+        dfcEl.style.background = DAILY_FREE_CREDITS_ON ? '#2d8a5e' : '#e2e8f0';
+        dfcEl.querySelector('div').style.transform = DAILY_FREE_CREDITS_ON ? 'translateX(20px)' : 'translateX(0)';
+        dfcEl.setAttribute('aria-checked', DAILY_FREE_CREDITS_ON ? 'true' : 'false');
+      }
+    }
     var twEl = document.getElementById('twitterUrl');  if (twEl) twEl.value  = d.twitterUrl  || '';
     var liEl = document.getElementById('linkedinUrl'); if (liEl) liEl.value  = d.linkedinUrl || '';
     var igEl = document.getElementById('instagramUrl');if (igEl) igEl.value  = d.instagramUrl|| '';
@@ -3122,6 +3213,19 @@ function saveSettings() {
     if (!fieldValid) valid = false;
   });
 
+  // Per-currency minimum bank withdrawal (Step 3 fix) — validated separately
+  // since it's a nested object, not a flat SETTINGS_FIELDS entry.
+  var minWithdrawalByCurrency = {};
+  MIN_WITHDRAW_CURRENCIES.forEach(function(cur) {
+    var input = document.getElementById('set-min-withdraw-' + cur);
+    if (!input) return;
+    var value = parseFloat(input.value);
+    var fieldValid = !isNaN(value) && value >= 0;
+    input.style.borderColor = fieldValid ? '#e2e8f0' : '#c81e1e';
+    if (!fieldValid) valid = false;
+    minWithdrawalByCurrency[cur] = fieldValid ? value : 0;
+  });
+
   if (!valid) {
     showToast('Please enter valid values for all fields');
     return;
@@ -3136,11 +3240,13 @@ function saveSettings() {
   SETTINGS_FIELDS.forEach(function(f) {
     payload[f.key] = f.parse(document.getElementById(f.id).value);
   });
+  payload.minWithdrawalByCurrency = minWithdrawalByCurrency;
   payload.stripeEnabled         = GATEWAY_STATE.stripe;
   payload.flutterwaveEnabled    = GATEWAY_STATE.flutterwave;
   payload.cryptoEnabled         = GATEWAY_STATE.crypto;
   payload.referralProgramEnabled = REFERRAL_PROGRAM_ON;
   payload.monthlyFreeCreditEnabled = MONTHLY_CREDIT_ON;
+  payload.dailyFreeCreditsEnabled = DAILY_FREE_CREDITS_ON;
   payload.twitterUrl  = (document.getElementById('twitterUrl')  || {}).value ? document.getElementById('twitterUrl').value.trim()  : '';
   payload.linkedinUrl = (document.getElementById('linkedinUrl') || {}).value ? document.getElementById('linkedinUrl').value.trim() : '';
   payload.instagramUrl= (document.getElementById('instagramUrl')|| {}).value ? document.getElementById('instagramUrl').value.trim(): '';
@@ -3226,6 +3332,37 @@ function setMonthlyFreeCreditToggle(val) {
     el.setAttribute('aria-checked', MONTHLY_CREDIT_ON ? 'true' : 'false');
     var knob = el.querySelector('div');
     if (knob) knob.style.transform = MONTHLY_CREDIT_ON ? 'translateX(20px)' : 'translateX(0)';
+  }
+}
+
+/* ── Daily free credits toggle state (Kreddlo Credits) — lets the admin
+   turn off the 10/day giveaway entirely without a code change. Saves
+   immediately on click (like the gateway toggles), independent of the
+   "Save All Settings" button which only covers the numeric fields. ── */
+var DAILY_FREE_CREDITS_ON = true;
+function toggleDailyFreeCredits() {
+  DAILY_FREE_CREDITS_ON = !DAILY_FREE_CREDITS_ON;
+  var el = document.getElementById('toggle-daily-free-credits');
+  el.style.background = DAILY_FREE_CREDITS_ON ? '#2d8a5e' : '#e2e8f0';
+  el.querySelector('div').style.transform = DAILY_FREE_CREDITS_ON ? 'translateX(20px)' : 'translateX(0)';
+  el.setAttribute('aria-checked', DAILY_FREE_CREDITS_ON ? 'true' : 'false');
+
+  if (window.firestore && window.db) {
+    var _f = window.firestore;
+    _f.setDoc(_f.doc(window.db, 'config', 'platform'), { dailyFreeCreditsEnabled: DAILY_FREE_CREDITS_ON }, { merge: true })
+      .then(function() {
+        showToast('Daily free credits ' + (DAILY_FREE_CREDITS_ON ? 'enabled' : 'disabled') + '.');
+      })
+      .catch(function(err) {
+        console.error('toggleDailyFreeCredits error:', err);
+        DAILY_FREE_CREDITS_ON = !DAILY_FREE_CREDITS_ON;
+        el.style.background = DAILY_FREE_CREDITS_ON ? '#2d8a5e' : '#e2e8f0';
+        el.querySelector('div').style.transform = DAILY_FREE_CREDITS_ON ? 'translateX(20px)' : 'translateX(0)';
+        el.setAttribute('aria-checked', DAILY_FREE_CREDITS_ON ? 'true' : 'false');
+        showToast('Failed to update setting.');
+      });
+  } else {
+    showToast('Daily free credits ' + (DAILY_FREE_CREDITS_ON ? 'enabled' : 'disabled') + ' (demo mode).');
   }
 }
 
@@ -4548,12 +4685,12 @@ function loadCryptoReviewWhenReady(attempt) {
     loadCryptoReview();
     return;
   }
-  if (attempt >= 20) {
+  if (attempt >= 40) {
     _cryptoReviewLoaded = true;
     loadCryptoReview();
     return;
   }
-  setTimeout(function() { loadCryptoReviewWhenReady(attempt + 1); }, 150);
+  setTimeout(function() { loadCryptoReviewWhenReady(attempt + 1); }, 200);
 }
 
 async function loadCryptoReview() {
@@ -4580,7 +4717,7 @@ async function loadCryptoReview() {
     renderCryptoReview();
     console.log('[crypto-review] loaded', _cryptoReviewOrders.length, 'flagged orders');
   } catch (err) {
-    console.error('[crypto-review] load error:', err && err.code, err && err.message);
+    console.error('[crypto-review] load error:', err && err.code, err && err.message, err);
     _cryptoReviewLoaded = false;
     var loadingEl2 = document.getElementById('crypto-review-loading');
     if (loadingEl2) {

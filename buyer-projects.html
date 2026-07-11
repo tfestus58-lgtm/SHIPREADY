@@ -487,20 +487,6 @@ body { overflow-x: hidden !important; }
   </div>
 </div>
 
-<!-- PAYMENT METHOD MODAL — shown only when the freelancer accepts more than one method -->
-<div id="payment-method-modal" class="modal" onclick="if(event.target===this)closePaymentMethodModal()">
-  <div class="modal-box" style="max-width:440px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <h3 style="font-size:20px;font-weight:800;color:#0d2145;margin:0;">Choose Payment Method</h3>
-      <button onclick="closePaymentMethodModal()" style="background:none;border:none;cursor:pointer;padding:4px;line-height:0;" aria-label="Close">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(13,33,69,0.50)" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <p style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.55);margin:0 0 18px;line-height:1.6;">This freelancer accepts more than one payment method. Choose how you'd like to pay.</p>
-    <div id="payment-method-modal-selector" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;"></div>
-    <button id="payment-method-modal-confirm-btn" class="btn-primary" style="width:100%;" onclick="confirmPaymentMethodChoice()">Continue to Payment</button>
-  </div>
-</div>
 
 <!-- CONTRACT STATUS MODAL — pre-signature / signed-but-unfunded contract detail -->
 <div id="contract-status-modal" class="modal" onclick="if(event.target===this)closeContractStatusModal()">
@@ -669,9 +655,12 @@ function buildActionRow(p) {
   // Both parties have signed and payment has not yet been made.
   // Covers escrowStatus === 'unfunded', null, undefined, '' or any non-funded value.
   if (p.freelancerSigned && p.buyerSigned && !escrowDone) {
-    return '<button class="btn-green btn-sm" style="width:100%;" onclick="makePayment(\'' + p.id + '\')" id="pay-btn-' + p.id + '">'
-      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>'
-      + 'Complete Payment</button>';
+    // Render placeholder payment button — card/crypto buttons are injected by
+    // renderPaymentButtons() after the card is in the DOM and platform settings are loaded.
+    return '<div id="pay-buttons-' + p.id + '" style="display:flex;flex-direction:column;gap:8px;">' +
+      '<button class="btn-green btn-sm" style="width:100%;opacity:0.6;pointer-events:none;" disabled>' +
+      '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>' +
+      'Loading…</button></div>';
   }
 
   // Pending payment (awaiting signatures) — show renegotiation UI if there is a pending proposal
@@ -756,147 +745,72 @@ function buildActionRow(p) {
   return '';
 }
 
-// ============ MAKE PAYMENT ============
-// Tracks which project the payment-method modal is currently open for.
-var _paymentMethodModalProjectId = null;
+// ============ RENDER PAYMENT BUTTONS (clean — no processor names shown) ============
+// Matches the p.html pattern: one "Pay with Card" button (silently routed to
+// Flutterwave for African buyers, Stripe for everyone else) and one separate
+// "Pay with Crypto" button (always NOWPayments). The buyer never sees the
+// underlying processor name.
+async function renderPaymentButtons(p) {
+  var container = document.getElementById('pay-buttons-' + p.id);
+  if (!container) return;
 
-async function makePayment(id) {
-  var btn = document.getElementById('pay-btn-'+id);
-  if (!btn) return;
-  var original = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Loading...';
+  // Detect buyer timezone to route card payment silently — same logic as p.html
+  var buyerTimezone = '';
+  try { buyerTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+  var buyerIsAfrican = buyerTimezone.indexOf('Africa/') === 0;
 
+  // Read platform settings to know which gateways are enabled
+  var stripeEnabled = true;
+  var flutterwaveEnabled = true;
+  var cryptoEnabled = true;
   try {
-    var project = PROJECTS.find(function(p) { return p.id === id; });
-    if (!project) throw new Error('Project not found.');
-
-    // Fetch the freelancer's accepted payment methods so the buyer gets a real
-    // choice when more than one is enabled, instead of a gateway being picked
-    // silently. Falls back to crypto-only if the field is missing, matching
-    // the same fallback profile.html's hire-modal payment step already uses.
     var fsQ = window._fsQ;
-    var acceptedMethods = ['crypto'];
-    if (project.freelancerUid) {
-      try {
-        var flSnap = await fsQ.getDoc(fsQ.doc(window.db, 'users', project.freelancerUid));
-        if (flSnap.exists()) {
-          var flData = flSnap.data();
-          if (Array.isArray(flData.acceptedPaymentMethods) && flData.acceptedPaymentMethods.length > 0) {
-            acceptedMethods = flData.acceptedPaymentMethods;
-          }
-        }
-      } catch (lookupErr) {
-        console.warn('[makePayment] Could not load freelancer payment methods, defaulting to crypto:', lookupErr.message);
-      }
+    var cfgSnap = await fsQ.getDoc(fsQ.doc(window.db, 'config', 'platform'));
+    if (cfgSnap.exists()) {
+      var cfg = cfgSnap.data();
+      stripeEnabled       = cfg.stripeEnabled       !== false;
+      flutterwaveEnabled  = cfg.flutterwaveEnabled  !== false;
+      cryptoEnabled       = cfg.cryptoEnabled       !== false;
     }
+  } catch (e) { /* use defaults */ }
 
-    if (acceptedMethods.length <= 1) {
-      // Only one method available — proceed directly, same as before.
-      await initiatePayment(id, acceptedMethods[0] || 'crypto', btn, original);
-      return;
-    }
-
-    // More than one method available — let the buyer choose.
-    btn.disabled = false;
-    btn.innerHTML = original;
-    openPaymentMethodModal(id, acceptedMethods);
-
-  } catch (err) {
-    showToast(err.message || 'Could not start payment. Try again.');
-    btn.disabled = false;
-    btn.innerHTML = original;
+  // Determine card method silently — user never sees the processor name
+  var cardMethod = null;
+  if (buyerIsAfrican && flutterwaveEnabled) {
+    cardMethod = 'flutterwave';
+  } else if (!buyerIsAfrican && stripeEnabled) {
+    cardMethod = 'stripe';
+  } else if (flutterwaveEnabled) {
+    cardMethod = 'flutterwave';
+  } else if (stripeEnabled) {
+    cardMethod = 'stripe';
   }
-}
 
-// ============ PAYMENT METHOD MODAL ============
-function openPaymentMethodModal(projectId, methods) {
-  _paymentMethodModalProjectId = projectId;
-
-  var defs = {
-    crypto: {
-      label: 'Crypto (NOWPayments)',
-      sub:   'BTC, USDT, ETH, USDC & 300+ coins',
-      icon:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 12h6M12 9v6"/></svg>'
-    },
-    stripe: {
-      label: 'Card (Stripe)',
-      sub:   'Visa, Mastercard, Amex & more',
-      icon:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>'
-    },
-    flutterwave: {
-      label: 'Flutterwave',
-      sub:   'Bank transfer, mobile money & local cards',
-      icon:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>'
-    }
-  };
-
-  var container = document.getElementById('payment-method-modal-selector');
   var html = '';
-  methods.forEach(function(method, idx) {
-    var def = defs[method];
-    if (!def) return;
-    var isFirst = idx === 0;
-    html += '<label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:13px 14px;background:' + (isFirst ? 'rgba(45,138,94,0.06)' : 'rgba(13,33,69,0.03)') + ';border:1.5px solid ' + (isFirst ? 'rgba(45,138,94,0.30)' : '#e2e8f0') + ';border-radius:12px;transition:border-color .15s,background .15s;">'
-      + '<input type="radio" name="buyer-payment-method" value="' + method + '"'
-      + (isFirst ? ' checked' : '')
-      + ' onchange="onBuyerPaymentMethodChange()" style="width:16px;height:16px;accent-color:#2d8a5e;flex-shrink:0;cursor:pointer;"/>'
-      + '<span style="color:rgba(13,33,69,0.65);flex-shrink:0;">' + def.icon + '</span>'
-      + '<div style="min-width:0;">'
-      + '<p style="font-size:13px;font-weight:700;color:#0d2145;margin:0 0 2px;">' + def.label + '</p>'
-      + '<p style="font-size:11px;font-weight:500;color:rgba(13,33,69,0.50);margin:0;">' + def.sub + '</p>'
-      + '</div>'
-      + '</label>';
-  });
-  container.innerHTML = html;
 
-  document.getElementById('payment-method-modal').classList.add('open');
-  lockBodyScroll();
-}
-
-function closePaymentMethodModal() {
-  document.getElementById('payment-method-modal').classList.remove('open');
-  unlockBodyScroll();
-  _paymentMethodModalProjectId = null;
-}
-
-function onBuyerPaymentMethodChange() {
-  var radios = document.querySelectorAll('input[name="buyer-payment-method"]');
-  radios.forEach(function(radio) {
-    var label = radio.closest('label');
-    if (!label) return;
-    if (radio.checked) {
-      label.style.background = 'rgba(45,138,94,0.06)';
-      label.style.borderColor = 'rgba(45,138,94,0.30)';
-    } else {
-      label.style.background = 'rgba(13,33,69,0.03)';
-      label.style.borderColor = '#e2e8f0';
-    }
-  });
-}
-
-async function confirmPaymentMethodChoice() {
-  var projectId = _paymentMethodModalProjectId;
-  if (!projectId) { closePaymentMethodModal(); return; }
-
-  var selectedRadio = document.querySelector('input[name="buyer-payment-method"]:checked');
-  var chosenMethod  = selectedRadio ? selectedRadio.value : 'crypto';
-
-  var confirmBtn = document.getElementById('payment-method-modal-confirm-btn');
-  var confirmOriginal = confirmBtn.innerHTML;
-  confirmBtn.disabled = true;
-  confirmBtn.innerHTML = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Redirecting...';
-
-  var payBtn = document.getElementById('pay-btn-'+projectId);
-  var payBtnOriginal = payBtn ? payBtn.innerHTML : '';
-
-  try {
-    await initiatePayment(projectId, chosenMethod, payBtn, payBtnOriginal);
-    closePaymentMethodModal();
-  } finally {
-    confirmBtn.disabled = false;
-    confirmBtn.innerHTML = confirmOriginal;
+  // Card button — labelled "Pay with Card" only, routed silently
+  if (cardMethod) {
+    html += '<button class="btn-green btn-sm" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;" ' +
+      'onclick="initiatePayment(\'' + p.id + '\',\'' + cardMethod + '\',this,this.innerHTML)">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>' +
+      'Pay with Card' +
+      '</button>';
   }
+
+  // Crypto button — labelled "Pay with Crypto" only
+  if (cryptoEnabled) {
+    html += '<button class="btn-secondary btn-sm" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;" ' +
+      'onclick="initiatePayment(\'' + p.id + '\',\'crypto\',this,this.innerHTML)">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9 12h6M12 9v6"/></svg>' +
+      'Pay with Crypto' +
+      '</button>';
+  }
+
+  if (!html) {
+    html = '<p style="font-size:12px;color:#c81e1e;font-weight:600;text-align:center;margin:0;padding:10px 0;">Payment unavailable. Contact support.</p>';
+  }
+
+  container.innerHTML = html;
 }
 
 // ============ INITIATE PAYMENT (shared by direct pay and modal confirm) ============
@@ -1243,6 +1157,14 @@ function renderProjects() {
           : '')
     + '</div>';
   }).join('');
+
+  // Inject gateway-specific payment buttons for any project awaiting payment
+  PROJECTS.forEach(function(p) {
+    var escrowDone = (p.escrowStatus === 'funded' || p.escrowStatus === 'released' || p.escrowStatus === 'disputed');
+    if (p.freelancerSigned && p.buyerSigned && !escrowDone) {
+      renderPaymentButtons(p);
+    }
+  });
 }
 
 // ============ DISPUTE MODAL (raisedByRole = buyer) ============

@@ -163,7 +163,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145
 .seller-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#e2e8f0;flex-shrink:0;border:2px solid #fff;box-shadow:0 2px 8px rgba(13,33,69,0.12)}
 .seller-avatar-init{width:40px;height:40px;border-radius:50%;background:var(--green-pale);color:var(--green);font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .seller-name{font-size:14px;font-weight:700;color:var(--navy)}
-.badge-verified{display:inline-flex;align-items:center;gap:4px;background:#e8f5ef;color:#2d8a5e;border-radius:50px;padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.3px;margin-left:6px}
+.badge-verified{display:inline-flex;align-items:center;margin-left:6px}
 
 /* ── Product title & description ── */
 .product-title{font-size:24px;font-weight:800;color:var(--navy);letter-spacing:-0.5px;margin:0 0 12px;line-height:1.25}
@@ -622,7 +622,7 @@ async function renderProduct(p) {
     ? `<img class="seller-avatar" src="${escHtml(sellerPhoto)}" alt="${escHtml(sellerName)}" loading="lazy" decoding="async"/>`
     : `<div class="seller-avatar-init">${initials}</div>`;
   const verifiedBadge = kycVerified
-    ? `<span class="badge-verified"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</span>`
+    ? `<span class="badge-verified"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Verified" style="flex-shrink:0;"><circle cx="12" cy="12" r="12" fill="#1D9BF0"/><path d="M7 12.3l3.2 3.2L17.3 8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
     : '';
   sellerRow.innerHTML = `${avatarEl}<span class="seller-name">${escHtml(sellerName)}</span>${verifiedBadge}`;
 
