@@ -42,7 +42,9 @@
 import acceptPitch from '../functions/netlify/functions/accept-pitch.js';
 import affiliateWithdraw from '../functions/netlify/functions/affiliate-withdraw.js';
 import approveDelivery from '../functions/netlify/functions/approve-delivery.js';
+import backfillAffiliateTotals from '../functions/netlify/functions/backfill-affiliate-totals.js';
 import backfillPublicProfiles from '../functions/netlify/functions/backfill-public-profiles.js';
+import backfillSellerTotals from '../functions/netlify/functions/backfill-seller-totals.js';
 import cancelSubscription from '../functions/netlify/functions/cancel-subscription.js';
 import cleanupAffiliateLinks from '../functions/netlify/functions/cleanup-affiliate-links.js';
 import cloudinaryDelete from '../functions/netlify/functions/cloudinary-delete.js';
@@ -113,7 +115,9 @@ const routes = {
   'accept-pitch': acceptPitch,
   'affiliate-withdraw': affiliateWithdraw,
   'approve-delivery': approveDelivery,
+  'backfill-affiliate-totals': backfillAffiliateTotals,
   'backfill-public-profiles': backfillPublicProfiles,
+  'backfill-seller-totals': backfillSellerTotals,
   'cancel-subscription': cancelSubscription,
   'cleanup-affiliate-links': cleanupAffiliateLinks,
   'cloudinary-delete': cloudinaryDelete,
