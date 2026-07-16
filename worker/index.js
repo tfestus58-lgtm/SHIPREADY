@@ -26,6 +26,12 @@
  *      HTML page as normal. (Ported from functions/_middleware.js, which
  *      was written for Cloudflare Pages Functions and does not run in a
  *      plain Workers project.)
+ *   3b. /p/<slug>, /store/<slug> — same crawler-interception behavior as
+ *      step 3, plus a rewrite to /p.html?slug=<slug> / 
+ *      /store.html?storeSlug=<slug> for real visitors (ported from
+ *      netlify.toml's /p/:slug and /store/:slug redirects — these are
+ *      the pretty share-link URLs shown to sellers in
+ *      dashboard-products.html's product-link preview).
  *   4. Otherwise, serve static assets. If the exact path doesn't match a
  *      file, try appending ".html" (replicates netlify.toml's ~40 clean-URL
  *      redirects, e.g. /dashboard -> /dashboard.html, generically instead
@@ -43,6 +49,7 @@ import acceptPitch from '../functions/netlify/functions/accept-pitch.js';
 import affiliateWithdraw from '../functions/netlify/functions/affiliate-withdraw.js';
 import approveDelivery from '../functions/netlify/functions/approve-delivery.js';
 import backfillAffiliateTotals from '../functions/netlify/functions/backfill-affiliate-totals.js';
+import backfillDeactivateOrphanedAffiliateLinks from '../functions/netlify/functions/backfill-deactivate-orphaned-affiliate-links.js';
 import backfillPublicProfiles from '../functions/netlify/functions/backfill-public-profiles.js';
 import backfillSellerTotals from '../functions/netlify/functions/backfill-seller-totals.js';
 import cancelSubscription from '../functions/netlify/functions/cancel-subscription.js';
@@ -116,6 +123,7 @@ const routes = {
   'affiliate-withdraw': affiliateWithdraw,
   'approve-delivery': approveDelivery,
   'backfill-affiliate-totals': backfillAffiliateTotals,
+  'backfill-deactivate-orphaned-affiliate-links': backfillDeactivateOrphanedAffiliateLinks,
   'backfill-public-profiles': backfillPublicProfiles,
   'backfill-seller-totals': backfillSellerTotals,
   'cancel-subscription': cancelSubscription,
@@ -234,6 +242,42 @@ export default {
         return routes['og-meta'].fetch(ogRequest, env, ctx);
       }
       /* real visitor — fall through to static asset serving below */
+    }
+
+    /* ── 3b. Path-style clean URLs with a dynamic slug segment ──
+       Ported from netlify.toml's /p/:slug and /store/:slug redirects
+       ("ISSUE 4 FIX" in the original Netlify config). These are the
+       pretty share-link URLs shown to sellers as their product's
+       shareable link (see dashboard-products.html's linkPreview) and
+       used for social-media OG previews of shared product/store links.
+       Without this block, /p/<slug> and /store/<slug> 404 — the
+       .html-append fallback in step 4 below only handles the SAME path
+       gaining an extension, not a path segment being rewritten into a
+       query parameter, so this dynamic-segment case needs its own rule. */
+    const productSlugMatch = p.match(/^\/p\/([a-zA-Z0-9-]+)\/?$/);
+    const storeSlugMatch   = p.match(/^\/store\/([a-zA-Z0-9-]+)\/?$/);
+
+    if (productSlugMatch || storeSlugMatch) {
+      const slug = decodeURIComponent((productSlugMatch || storeSlugMatch)[1]);
+      const ua   = request.headers.get('user-agent') || '';
+
+      if (CRAWLER_UA_PATTERN.test(ua) && routes['og-meta']) {
+        const ogUrl = new URL('/.netlify/functions/og-meta', url.origin);
+        ogUrl.searchParams.set('type', productSlugMatch ? 'product' : 'store');
+        ogUrl.searchParams.set('slug', slug);
+        const ogRequest = new Request(ogUrl.toString(), request);
+        return routes['og-meta'].fetch(ogRequest, env, ctx);
+      }
+
+      // Real visitor — rewrite to the static .html page with the slug as a
+      // query param, matching p.html's `?slug=` / store.html's `?storeSlug=`
+      // readers exactly (see the URLSearchParams reads in each file).
+      const targetPath = productSlugMatch ? '/p.html' : '/store.html';
+      const paramName  = productSlugMatch ? 'slug' : 'storeSlug';
+      const targetUrl  = new URL(targetPath, url.origin);
+      targetUrl.searchParams.set(paramName, slug);
+      const targetRequest = new Request(targetUrl.toString(), request);
+      return env.ASSETS.fetch(targetRequest);
     }
 
     /* ── 4. Static assets, with clean-URL (.html) fallback ── */
