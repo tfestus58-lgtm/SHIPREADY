@@ -17,21 +17,7 @@
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -298,15 +284,15 @@ tr:last-child td{border-bottom:1px solid #f0f2f6}
         <div class="stats-grid" style="margin-bottom:22px;">
           <div class="stat-card">
             <p class="lbl" style="margin:0 0 6px;">Total Earned</p>
-            <p id="stat-total" style="font-size:20px;font-weight:800;color:#0d2145;margin:0;">—</p>
+            <div id="stat-total" style="font-size:20px;font-weight:800;color:#0d2145;">—</div>
           </div>
           <div class="stat-card">
             <p class="lbl" style="margin:0 0 6px;">Pending</p>
-            <p id="stat-pending" style="font-size:20px;font-weight:800;color:#856404;margin:0;">—</p>
+            <div id="stat-pending" style="font-size:20px;font-weight:800;color:#856404;">—</div>
           </div>
           <div class="stat-card">
             <p class="lbl" style="margin:0 0 6px;">Paid Out</p>
-            <p id="stat-paid" style="font-size:20px;font-weight:800;color:#2d8a5e;margin:0;">—</p>
+            <div id="stat-paid" style="font-size:20px;font-weight:800;color:#2d8a5e;">—</div>
           </div>
           <div class="stat-card">
             <p class="lbl" style="margin:0 0 6px;">Conversions</p>
@@ -842,9 +828,11 @@ async function loadAffiliateDashboard(uid) {
   var pendingClearance = userData.affiliatePendingBalance != null
     ? Number(userData.affiliatePendingBalance) || 0
     : Math.max(0, totalEarned - totalPaid - _affiliateBal);
+  // Per-currency pending map — hoisted above the >0 check so it's available
+  // for the stat-pending card below even when pendingClearance is 0.
+  var pendingBalancesMap = userData.affiliatePendingBalances || {};
   if (pendingClearance > 0) {
     // If per-currency pending data exists, show it broken down; otherwise show blended
-    var pendingBalancesMap = userData.affiliatePendingBalances || {};
     var pendingKeys = Object.keys(pendingBalancesMap).filter(function(c) { return Number(pendingBalancesMap[c]) > 0; });
     if (pendingKeys.length > 1) {
       var pendingParts = pendingKeys.map(function(c) { return fmtCurrency(pendingBalancesMap[c], c); }).join(' + ');
@@ -901,10 +889,41 @@ async function loadAffiliateDashboard(uid) {
   _affiliateCryptoBal = _affiliateBal;
   _affiliateFiatBal   = _affiliateBal;
 
+  // Stat cards — per-currency, never blended (Issue 9 fix). Uses the same
+  // window.kreddloCurrency.renderCard() already proven on the Available
+  // Balance card above. Any amount that isn't yet attributable to a specific
+  // currency (older records, or — for Paid Out — withdrawals made before
+  // affiliateTotalPaidByCurrency existed) is shown as its own "Legacy" line
+  // rather than being dropped or guessed into the wrong currency.
+  function renderStatCard(elId, byCurrencyMap, blendedTotal, assumeUsdWhenEmpty) {
+    var map = {};
+    var src = byCurrencyMap || {};
+    Object.keys(src).forEach(function(c) { map[c] = Number(src[c]) || 0; });
+    var mappedSum = Object.keys(map).reduce(function(s, c) { return s + map[c]; }, 0);
+    var blended = Number(blendedTotal) || 0;
+    var gap = blended - mappedSum;
+    if (!Object.keys(map).length && blended > 0 && assumeUsdWhenEmpty) {
+      // Matches the platform's documented pre-migration history (see
+      // backfill-seller-totals.js): USD was the only currency before
+      // multi-currency tracking existed.
+      map['USD'] = blended;
+    } else if (gap > 0.01) {
+      map['Legacy'] = (map['Legacy'] || 0) + gap;
+    }
+    var el = document.getElementById(elId);
+    if (!el) return;
+    if (window.kreddloCurrency && window.kreddloCurrency.renderCard) {
+      el.innerHTML = window.kreddloCurrency.renderCard(map, { primaryColor: 'inherit', zeroCurrency: cur });
+    } else {
+      // shared.js not yet ready — show plain blended total as fallback
+      el.textContent = fmt(blended, cur);
+    }
+  }
+
   // Stat cards
-  document.getElementById('stat-total').textContent       = fmt(totalEarned, cur);
-  document.getElementById('stat-pending').textContent     = fmt(totalPendingAmt, cur);
-  document.getElementById('stat-paid').textContent        = fmt(totalPaid, cur);
+  renderStatCard('stat-total',   userData.affiliateTotalEarnedByCurrency, totalEarned,     true);
+  renderStatCard('stat-pending', pendingBalancesMap,                      totalPendingAmt, false);
+  renderStatCard('stat-paid',    userData.affiliateTotalPaidByCurrency,   totalPaid,       false);
   document.getElementById('stat-conversions').textContent = totalConversions;
 
   // 2. Affiliate-links for promoted products

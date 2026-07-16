@@ -18,21 +18,7 @@
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -269,8 +255,7 @@ body{overflow-x:hidden!important}
           <div class="bundle-credits" id="bundle-starter-credits">50 Credits</div>
           <div class="bundle-price" id="bundle-starter-price">$4.99</div>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
-            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('starter','flutterwave',this)">Pay with Flutterwave</button>
-            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('starter','stripe',this)">Pay with Stripe</button>
+            <button class="btn-green" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="purchaseBundleCard('starter',this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Pay with Card</button>
           </div>
         </div>
 
@@ -279,8 +264,7 @@ body{overflow-x:hidden!important}
           <div class="bundle-credits" id="bundle-pro-credits">150 Credits</div>
           <div class="bundle-price" id="bundle-pro-price">$9.99</div>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
-            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('pro','flutterwave',this)">Pay with Flutterwave</button>
-            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('pro','stripe',this)">Pay with Stripe</button>
+            <button class="btn-green" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="purchaseBundleCard('pro',this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Pay with Card</button>
           </div>
         </div>
 
@@ -290,8 +274,7 @@ body{overflow-x:hidden!important}
           <div class="bundle-credits" id="bundle-power-credits">500 Credits</div>
           <div class="bundle-price" id="bundle-power-price">$24.99</div>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px;">
-            <button class="btn-green" style="width:100%;" onclick="purchaseBundle('power','flutterwave',this)">Pay with Flutterwave</button>
-            <button class="btn-secondary" style="width:100%;" onclick="purchaseBundle('power','stripe',this)">Pay with Stripe</button>
+            <button class="btn-green" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="purchaseBundleCard('power',this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Pay with Card</button>
           </div>
         </div>
 
@@ -569,6 +552,55 @@ async function loadCreditPlatformConfig() {
 }
 
 /* ══════════════════════════════════════════════
+   CARD METHOD RESOLUTION — same silent routing pattern already
+   used by buyer-projects.html: buyer never sees "Flutterwave" or
+   "Stripe", only ever "Pay with Card". Resolved once per page load
+   and cached, then reused for every bundle's Card button click.
+══════════════════════════════════════════════ */
+var _cardMethodPromise = null;
+function resolveCardMethod() {
+  if (_cardMethodPromise) return _cardMethodPromise;
+  _cardMethodPromise = (async function() {
+    var buyerTimezone = '';
+    try { buyerTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    var buyerIsAfrican = buyerTimezone.indexOf('Africa/') === 0;
+
+    var stripeEnabled = true;
+    var flutterwaveEnabled = true;
+    try {
+      if (window.db && window._fsQ) {
+        var cfgSnap = await window._fsQ.getDoc(window._fsQ.doc(window.db, 'config', 'platform'));
+        if (cfgSnap.exists()) {
+          var cfg = cfgSnap.data();
+          stripeEnabled      = cfg.stripeEnabled      !== false;
+          flutterwaveEnabled = cfg.flutterwaveEnabled !== false;
+        }
+      }
+    } catch (e) { /* use defaults */ }
+
+    if (buyerIsAfrican && flutterwaveEnabled) return 'flutterwave';
+    if (!buyerIsAfrican && stripeEnabled) return 'stripe';
+    if (flutterwaveEnabled) return 'flutterwave';
+    if (stripeEnabled) return 'stripe';
+    return null;
+  })();
+  return _cardMethodPromise;
+}
+
+async function purchaseBundleCard(bundle, btnEl) {
+  var originalText = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Please wait…'; }
+  var method = await resolveCardMethod();
+  if (!method) {
+    showToast('Card payment is unavailable right now. Please try again later.');
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalText; }
+    return;
+  }
+  if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalText; }
+  purchaseBundle(bundle, method, btnEl);
+}
+
+/* ══════════════════════════════════════════════
    PURCHASE — calls purchase-credits.js, redirects
    to the gateway's hosted checkout URL on success
 ══════════════════════════════════════════════ */
@@ -682,9 +714,14 @@ async function loadPurchaseHistory(uid) {
     });
     renderHistory(orders);
   } catch (err) {
-    console.error('[loadPurchaseHistory]', err);
     renderHistoryEmpty();
-    showToast('Could not load purchase history.');
+    if (err && (err.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(err.message || ''))) {
+      console.error('[loadPurchaseHistory] missing composite index on creditOrders.uid+createdAt — see FIRESTORE_INDEXES.md, or check this error for a Firebase auto-create link:', err);
+      showToast('Setting up — try again in a minute.');
+    } else {
+      console.error('[loadPurchaseHistory]', err);
+      showToast('Could not load purchase history.');
+    }
   }
 }
 
@@ -749,7 +786,27 @@ if ('serviceWorker' in navigator) {
       loadCreditsOverview();
       loadPurchaseHistory(user.uid);
       loadCreditPlatformConfig();
-    }).catch(function() { window.location.href = '/login.html?next=/credits.html'; });
+    }).catch(function(err) {
+      // Fix 10: a transient Firestore/network error here does NOT mean the
+      // user is logged out (Firebase Auth session is untouched) — only
+      // redirect to login on a real auth failure. Otherwise keep the user
+      // on the page and let them retry.
+      console.error('[credits] Profile check failed — keeping session, not logging out:', err);
+      document.body.style.visibility = 'visible';
+      if (!document.getElementById('auth-retry-banner')) {
+        var b = document.createElement('div');
+        b.id = 'auth-retry-banner';
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;padding:10px 14px;font-size:13px;line-height:1.4;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+        var m = document.createElement('span');
+        m.textContent = "Couldn't load your session. Check your connection and retry.";
+        var btn = document.createElement('button');
+        btn.textContent = 'Retry';
+        btn.style.cssText = 'background:#fff;color:#1f2937;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;flex-shrink:0;';
+        btn.onclick = function(){ window.location.reload(); };
+        b.appendChild(m); b.appendChild(btn);
+        document.body.appendChild(b);
+      }
+    });
   });
 </script>
 </body>

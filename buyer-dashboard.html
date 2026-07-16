@@ -18,21 +18,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -1087,13 +1073,31 @@ async function loadBuyerDashboard(uid) {
 
   var fsQ = window._fsQ;
   try {
-    var q = fsQ.query(
-      fsQ.collection(window.db, 'projects'),
-      fsQ.where('buyerUid', '==', uid),
-      fsQ.orderBy('createdAt', 'desc'),
-      fsQ.limit(20)
-    );
-    var snap = await fsQ.getDocs(q);
+    // Try the indexed query (with orderBy) first. If the composite index is not
+    // yet deployed this throws FAILED_PRECONDITION — in that case we fall back to
+    // a simple equality query and sort client-side so projects still appear.
+    var snap;
+    try {
+      var q = fsQ.query(
+        fsQ.collection(window.db, 'projects'),
+        fsQ.where('buyerUid', '==', uid),
+        fsQ.orderBy('createdAt', 'desc'),
+        fsQ.limit(20)
+      );
+      snap = await fsQ.getDocs(q);
+    } catch(indexErr) {
+      if (indexErr && (indexErr.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(indexErr.message || ''))) {
+        console.warn('[loadBuyerDashboard] Composite index not ready — falling back to unordered query. Run: firebase deploy --only firestore:indexes');
+        var qFallback = fsQ.query(
+          fsQ.collection(window.db, 'projects'),
+          fsQ.where('buyerUid', '==', uid),
+          fsQ.limit(20)
+        );
+        snap = await fsQ.getDocs(qFallback);
+      } else {
+        throw indexErr;
+      }
+    }
 
     // Fetch freelancer names in parallel
     var flUids = [];
@@ -1128,20 +1132,43 @@ async function loadBuyerDashboard(uid) {
         escrowStatus:  data.escrowStatus   || 'unfunded',
         date:          dateStr,
         desc:          data.description    || '',
+        _rawCreatedAt: data.createdAt      || null,
       };
+    });
+    // Client-side sort: newest first (handles fallback query which has no orderBy)
+    PROJECTS.sort(function(a, b) {
+      var ta = a._rawCreatedAt ? (typeof a._rawCreatedAt.toMillis === 'function' ? a._rawCreatedAt.toMillis() : new Date(a._rawCreatedAt).getTime()) : 0;
+      var tb = b._rawCreatedAt ? (typeof b._rawCreatedAt.toMillis === 'function' ? b._rawCreatedAt.toMillis() : new Date(b._rawCreatedAt).getTime()) : 0;
+      return tb - ta;
     });
     DISPUTES_COUNT = PROJECTS.filter(function(p){ return p.status === 'disputed'; }).length;
 
     // ---- Recent Purchases (product-orders) ----
     try {
-      var pq = fsQ.query(
-        fsQ.collection(window.db, 'product-orders'),
-        fsQ.where('buyerUid', '==', uid),
-        fsQ.where('paymentStatus', '==', 'paid'),
-        fsQ.orderBy('createdAt', 'desc'),
-        fsQ.limit(3)
-      );
-      var psnap = await fsQ.getDocs(pq);
+      var psnap;
+      try {
+        var pq = fsQ.query(
+          fsQ.collection(window.db, 'product-orders'),
+          fsQ.where('buyerUid', '==', uid),
+          fsQ.where('paymentStatus', '==', 'paid'),
+          fsQ.orderBy('createdAt', 'desc'),
+          fsQ.limit(3)
+        );
+        psnap = await fsQ.getDocs(pq);
+      } catch(pIndexErr) {
+        if (pIndexErr && (pIndexErr.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(pIndexErr.message || ''))) {
+          console.warn('[loadBuyerDashboard] Purchases composite index not ready — falling back to unordered query. Run: firebase deploy --only firestore:indexes');
+          var pqFallback = fsQ.query(
+            fsQ.collection(window.db, 'product-orders'),
+            fsQ.where('buyerUid', '==', uid),
+            fsQ.where('paymentStatus', '==', 'paid'),
+            fsQ.limit(3)
+          );
+          psnap = await fsQ.getDocs(pqFallback);
+        } else {
+          throw pIndexErr;
+        }
+      }
       PURCHASES = psnap.docs.map(function(d) {
         var data = d.data();
         var ts = data.createdAt;
@@ -1155,7 +1182,14 @@ async function loadBuyerDashboard(uid) {
           deliveryStatus:  data.deliveryStatus  || 'pending',
           deliveryContent: data.deliveryContent || '',
           date:            dateStr,
+          _rawCreatedAt:   data.createdAt       || null,
         };
+      });
+      // Client-side sort: newest first (handles fallback query which has no orderBy)
+      PURCHASES.sort(function(a, b) {
+        var ta = a._rawCreatedAt ? (typeof a._rawCreatedAt.toMillis === 'function' ? a._rawCreatedAt.toMillis() : new Date(a._rawCreatedAt).getTime()) : 0;
+        var tb = b._rawCreatedAt ? (typeof b._rawCreatedAt.toMillis === 'function' ? b._rawCreatedAt.toMillis() : new Date(b._rawCreatedAt).getTime()) : 0;
+        return tb - ta;
       });
     } catch(pe) {
       console.warn('[purchases]', pe);
@@ -1315,7 +1349,27 @@ if ('serviceWorker' in navigator) {
         return;
       }
       if (typeof window._boot === 'function') window._boot(user, snap.data());
-    }).catch(function() { window.location.href = '/login.html'; });
+    }).catch(function(err) {
+      // Fix 10: a transient Firestore/network error here does NOT mean the
+      // user is logged out (Firebase Auth session is untouched) — only
+      // redirect to login on a real auth failure. Otherwise keep the user
+      // on the page and let them retry.
+      console.error('[buyer-dashboard] Profile check failed — keeping session, not logging out:', err);
+      document.body.style.visibility = 'visible';
+      if (!document.getElementById('auth-retry-banner')) {
+        var b = document.createElement('div');
+        b.id = 'auth-retry-banner';
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;padding:10px 14px;font-size:13px;line-height:1.4;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+        var m = document.createElement('span');
+        m.textContent = "Couldn't load your session. Check your connection and retry.";
+        var btn = document.createElement('button');
+        btn.textContent = 'Retry';
+        btn.style.cssText = 'background:#fff;color:#1f2937;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;flex-shrink:0;';
+        btn.onclick = function(){ window.location.reload(); };
+        b.appendChild(m); b.appendChild(btn);
+        document.body.appendChild(b);
+      }
+    });
   });
 </script>
 </body>

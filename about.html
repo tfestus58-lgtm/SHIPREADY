@@ -28,21 +28,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy: '#0d2145', green: '#2d8a5e', 'green-light': '#3dbd7a',
-            cream: '#f8f9fb', border: '#e2e8f0',
-          },
-          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-          borderRadius: { pill: '50px' },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8f9fb; color: #0d2145; -webkit-font-smoothing: antialiased; }
@@ -137,7 +123,7 @@
   <script type="module">
     import { initializeApp }  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-    import { getAuth }        from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
     import { getStorage }     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
 
     const firebaseConfig = {
@@ -153,6 +139,42 @@
     window.db     = getFirestore(app);
     window.auth   = getAuth(app);
     window.storage = getStorage(app);
+
+    // ── Auth-aware nav: toggle Log In/Get Started vs Dashboard+avatar ──
+    onAuthStateChanged(window.auth, async (user) => {
+      var pubD  = document.getElementById('nav-public-desktop');
+      var authD = document.getElementById('nav-auth-desktop');
+      var pubM  = document.getElementById('nav-public-mobile');
+      var authM = document.getElementById('nav-auth-mobile');
+
+      if (!user) {
+        if (pubD)  pubD.style.display  = 'flex';
+        if (authD) authD.style.display = 'none';
+        if (pubM)  pubM.style.display  = 'flex';
+        if (authM) authM.style.display = 'none';
+        return;
+      }
+
+      if (pubD)  pubD.style.display  = 'none';
+      if (authD) authD.style.display = 'flex';
+      if (pubM)  pubM.style.display  = 'none';
+      if (authM) authM.style.display = 'flex';
+
+      var avatarEl = document.getElementById('nav-avatar');
+      if (avatarEl) {
+        avatarEl.textContent = (user.displayName || user.email || '?')[0].toUpperCase();
+      }
+
+      var dashHref = '/dashboard.html';
+      try {
+        var snap = await getDoc(doc(window.db, 'users', user.uid));
+        if (snap.exists() && snap.data().role === 'buyer') dashHref = '/buyer-dashboard.html';
+      } catch (e) { /* silent — link already defaults to /dashboard.html */ }
+      var dashD = document.getElementById('nav-dash-desktop');
+      var dashM = document.getElementById('nav-dash-mobile');
+      if (dashD) dashD.href = dashHref;
+      if (dashM) dashM.href = dashHref;
+    });
 
     // Load social links from Firestore config
     (async () => {
@@ -191,10 +213,16 @@
         <a href="/blog/index.html"      class="text-navy/60 hover:text-navy text-[14px] font-medium transition-colors">Blog</a>
       </div>
 
-      <!-- Desktop CTA buttons -->
+      <!-- Desktop CTA buttons — public vs auth -->
       <div class="hidden md:flex items-center gap-3">
-        <a href="/login.html"  class="btn-secondary" style="padding:9px 22px;font-size:14px;">Log In</a>
-        <a href="/signup.html" class="btn-green"      style="padding:9px 22px;font-size:14px;">Get Started</a>
+        <div id="nav-public-desktop" style="display:flex;gap:8px;align-items:center;">
+          <a href="/login.html"  class="btn-secondary" style="padding:9px 22px;font-size:14px;">Log In</a>
+          <a href="/signup.html" class="btn-green"      style="padding:9px 22px;font-size:14px;">Get Started</a>
+        </div>
+        <div id="nav-auth-desktop" style="display:none;align-items:center;gap:10px;">
+          <a id="nav-dash-desktop" href="/dashboard.html" class="btn-secondary" style="padding:9px 22px;font-size:14px;font-weight:600;">Dashboard</a>
+          <div id="nav-avatar" style="width:34px;height:34px;border-radius:50%;background:#2d8a5e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;"></div>
+        </div>
       </div>
 
       <!-- Hamburger -->
@@ -214,9 +242,12 @@
       <a href="/briefs.html"          class="text-navy/70 hover:text-navy text-[15px] font-medium transition-colors">Briefs</a>
       <a href="/pricing.html"         class="text-navy/70 hover:text-navy text-[15px] font-medium transition-colors">Pricing</a>
       <a href="/blog/index.html"      class="text-navy/70 hover:text-navy text-[15px] font-medium transition-colors">Blog</a>
-      <div class="flex flex-col gap-3 pt-2 border-t border-border">
+      <div id="nav-public-mobile" class="flex flex-col gap-3 pt-2 border-t border-border">
         <a href="/login.html"  class="btn-secondary w-full text-center">Log In</a>
         <a href="/signup.html" class="btn-green w-full text-center">Get Started</a>
+      </div>
+      <div id="nav-auth-mobile" style="display:none;flex-direction:column;gap:10px;padding-top:8px;border-top:1px solid rgba(13,33,69,0.10);">
+        <a id="nav-dash-mobile" href="/dashboard.html" class="btn-green w-full text-center">Dashboard</a>
       </div>
     </div>
   </nav>

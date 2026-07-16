@@ -4,10 +4,14 @@
   "private": true,
   "engines": { "node": "20" },
   "scripts": {
-    "build": "exit 0"
+    "build": "exit 0",
+    "build:css": "tailwindcss -i ./assets/tailwind-input.css -o ./assets/tailwind.css --minify"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",
     "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.19"
   }
 }

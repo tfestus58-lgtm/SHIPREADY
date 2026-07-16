@@ -17,22 +17,8 @@
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <script src="/assets/shared.js"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -1168,7 +1154,7 @@ async function _initFCMReal() {
     var tokenOptions = { vapidKey: VAPID_KEY };
     if (swReg) tokenOptions.serviceWorkerRegistration = swReg;
 
-    var currentToken = await getToken(messaging, tokenOptions);
+    var currentToken = await window.fsGetToken(messaging, tokenOptions);
     if (!currentToken) { console.warn('[FCM] No token obtained.'); return; }
 
     // Save token to Firestore only if changed
@@ -1596,10 +1582,26 @@ async function loadDashboard(uid) {
     // display; totalEarnedByCurrency is the accurate source. Falls back to
     // totalEarned as a single USD figure only for older accounts that have
     // no totalEarnedByCurrency map yet (pre-migration), same fallback
-    // pattern already used for balancesMap above.
+    // pattern already used for balancesMap above. USD is the correct label
+    // for that full-fallback case — the platform had no other currency
+    // before multi-currency tracking existed (see backfill-seller-totals.js).
     var earningsMap = user.totalEarnedByCurrency || {};
     if (!Object.keys(earningsMap).length && user.totalEarned) {
       earningsMap['USD'] = Number(user.totalEarned);
+    }
+    // Some accounts have a partial per-currency map (earned before AND after
+    // multi-currency tracking began) whose sum is lower than the legacy
+    // totalEarned figure by exactly their pre-migration amount. Rather than
+    // silently dropping that difference, or guessing which currency it was
+    // in, show it as its own explicit line until backfill-seller-totals.js
+    // has been run to reconcile it (safe to run any time; once run, this
+    // gap becomes 0 and this line stops appearing on its own).
+    if (Object.keys(earningsMap).length && user.totalEarned) {
+      var _mappedSum = Object.keys(earningsMap).reduce(function(s, c) { return s + Number(earningsMap[c] || 0); }, 0);
+      var _legacyGap = Number(user.totalEarned) - _mappedSum;
+      if (_legacyGap > 0.01) {
+        earningsMap['Legacy'] = (earningsMap['Legacy'] || 0) + _legacyGap;
+      }
     }
     var totalEarningsSum = Object.keys(earningsMap).reduce(function(s, c) { return s + Number(earningsMap[c] || 0); }, 0);
     document.getElementById('stat-earnings').innerHTML       = renderCurrencyLines(earningsMap);
@@ -1774,8 +1776,13 @@ async function loadDashboard(uid) {
     } catch(e) { /* non-fatal */ }
 
   } catch(err) {
-    console.error('[dashboard] loadDashboard failed:', err);
-    showToast('Could not load dashboard data');
+    if (err && (err.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(err.message || ''))) {
+      console.error('[dashboard] loadDashboard failed — missing composite index, see FIRESTORE_INDEXES.md, or check this error for a Firebase auto-create link:', err);
+      showToast('Setting up — try again in a minute.');
+    } else {
+      console.error('[dashboard] loadDashboard failed:', err);
+      showToast('Could not load dashboard data');
+    }
   }
 }
 
@@ -1911,7 +1918,27 @@ onAuthStateChanged(auth, function(user) {
     if (role === 'buyer') { window.location.href = '/buyer-dashboard.html'; return; }
     if (role && role !== 'freelancer') { window.location.href = '/login.html'; return; }
     _continueBoot(user, affiliateEnabled);
-  }).catch(function() { window.location.href = '/login.html'; });
+  }).catch(function(err) {
+    // Fix 10: a transient Firestore/network error here does NOT mean the
+    // user is logged out (Firebase Auth session is untouched) — only
+    // redirect to login on a real auth failure. Otherwise keep the user
+    // on the page and let them retry.
+    console.error('[dashboard] Profile check failed — keeping session, not logging out:', err);
+    document.body.style.visibility = 'visible';
+    if (!document.getElementById('auth-retry-banner')) {
+      var b = document.createElement('div');
+      b.id = 'auth-retry-banner';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;padding:10px 14px;font-size:13px;line-height:1.4;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+      var m = document.createElement('span');
+      m.textContent = "Couldn't load your session. Check your connection and retry.";
+      var btn = document.createElement('button');
+      btn.textContent = 'Retry';
+      btn.style.cssText = 'background:#fff;color:#1f2937;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;flex-shrink:0;';
+      btn.onclick = function(){ window.location.reload(); };
+      b.appendChild(m); b.appendChild(btn);
+      document.body.appendChild(b);
+    }
+  });
 });
 
 function _continueBoot(user, affiliateEnabled) {

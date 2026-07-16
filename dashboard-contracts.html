@@ -20,21 +20,7 @@
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -952,10 +938,16 @@ function openContractModal(id) {
 
   // Action buttons
   html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">';
-  if (c.contractPdfUrl) {
-    html += '<a href="'+c.contractPdfUrl+'" target="_blank" rel="noopener" class="btn-secondary" style="flex:1;min-width:120px;text-decoration:none;">'
+  // Fix 11: previously this button only rendered when c.contractPdfUrl was
+  // already saved, so a contract that finished signing but hit a PDF-gen or
+  // Cloudinary error at that moment (see sign-contract.js) had no way to get
+  // its PDF at all. viewContractPdf() already has an on-demand-generation
+  // fallback (via download-contract.js) for exactly this case, so show the
+  // button whenever both parties have signed — with or without a stored URL.
+  if (c.freelancerSigned && c.buyerSigned) {
+    html += '<button class="btn-secondary" style="flex:1;min-width:120px;" onclick="viewContractPdf(\''+c.id+'\')">'
       + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
-      + 'Download PDF</a>';
+      + 'Download PDF</button>';
   }
   var isFreelancer = DEMO_USER.role === 'freelancer';
   var iSigned = isFreelancer ? c.freelancerSigned : c.buyerSigned;
@@ -1264,8 +1256,6 @@ window._boot = function(user) {
   var parts = DEMO_USER.name.trim().split(' ');
   document.getElementById('user-avatar').textContent =
     parts.length >= 2 ? parts[0][0]+parts[parts.length-1][0] : DEMO_USER.name.slice(0,2).toUpperCase();
-
-  document.getElementById('bell-dot').style.display = 'block';
 
   // Fetch user role from Firestore, build the correct nav, then load contracts
   (async function() {

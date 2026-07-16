@@ -19,24 +19,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:          '#0d2145',
-            green:         '#2d8a5e',
-            'green-light': '#3dbd7a',
-            cream:         '#f8f9fb',
-            border:        '#e2e8f0',
-          },
-          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-          borderRadius: { pill: '50px' },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     /* ── Base ── */
@@ -249,6 +232,9 @@
     setPersistence(_auth, browserLocalPersistence).then(() => {
       window.auth = _auth;
       window._fsPlatformConfig = { doc, getDoc };
+      // Expose onAuthStateChanged globally so the shared navbar component
+      // (components/navbar.html) can subscribe to auth state itself.
+      window.onAuthStateChanged = onAuthStateChanged;
       // Swap page CTA buttons when user is signed in (navbar auth handled by navbar component)
       onAuthStateChanged(window.auth, async (user) => {
         if (!user) return;
@@ -265,11 +251,18 @@
         if (ctaBoost)      { ctaBoost.href = '/dashboard-settings.html?tab=boost'; ctaBoost.textContent = 'Buy a Boost'; }
         if (ctaFreeBottom) { ctaFreeBottom.href = dashHref; ctaFreeBottom.textContent = 'Go to Dashboard'; }
       });
+      // Fix 17: set a persistent flag at the same moment the event fires.
+      // The 'kreddlo-firebase-ready' event only fires once and isn't replayed,
+      // so if the navbar component (loaded async via fetch) hasn't attached
+      // its listener yet, it would miss the event forever. The flag lets
+      // navbar.html check "did this already happen?" regardless of load order.
+      window.kreddloFirebaseReady = true;
       window.dispatchEvent(new Event('kreddlo-firebase-ready'));
     }).catch(() => {
       // Fallback: proceed without explicit persistence (default behaviour)
       window.auth = _auth;
       window._fsPlatformConfig = { doc, getDoc };
+      window.onAuthStateChanged = onAuthStateChanged;
       onAuthStateChanged(window.auth, async (user) => {
         if (!user) return;
         let dashHref = '/dashboard.html';
@@ -285,6 +278,7 @@
         if (ctaBoost2)      { ctaBoost2.href = '/dashboard-settings.html?tab=boost'; ctaBoost2.textContent = 'Buy a Boost'; }
         if (ctaFreeBottom2) { ctaFreeBottom2.href = dashHref; ctaFreeBottom2.textContent = 'Go to Dashboard'; }
       });
+      window.kreddloFirebaseReady = true;
       window.dispatchEvent(new Event('kreddlo-firebase-ready'));
     });
   </script>
@@ -1126,36 +1120,58 @@
       </button>
     </div>
 
-    <!-- Billing period toggle -->
-    <div style="display:flex;background:rgba(13,33,69,0.05);border-radius:12px;padding:4px;margin-bottom:20px;">
-      <button id="pro-period-monthly" onclick="setProPeriod('monthly')"
-        style="flex:1;padding:9px;border-radius:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.18s;background:#2d8a5e;color:#fff;">
-        Monthly
-      </button>
-      <button id="pro-period-annual" onclick="setProPeriod('annual')"
-        style="flex:1;padding:9px;border-radius:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.18s;background:transparent;color:rgba(13,33,69,0.55);">
-        Annual <span style="font-size:11px;color:#2d8a5e;font-weight:700;">Save 17%</span>
-      </button>
+    <!-- Checking eligibility (brief, shown while KYC status loads) -->
+    <div id="pro-modal-checking" style="display:none;text-align:center;padding:28px 0;font-size:13px;font-weight:500;color:rgba(13,33,69,0.55);">
+      Checking your account…
     </div>
 
-    <p style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.55);margin:0 0 16px;">Choose your payment method:</p>
-
-    <!-- Gateway options — visibility controlled by admin settings -->
-    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
-      <!-- Card / Bank Transfer: shown only when stripe OR flutterwave is enabled; auto-routes to the right processor -->
-      <button id="pro-btn-card" onclick="submitProUpgrade('card')" class="pro-gateway-btn" style="display:none;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left;transition:border-color 0.18s;" onmouseover="this.style.borderColor='#2d8a5e'" onmouseout="this.style.borderColor='#e2e8f0'">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        <div><p style="margin:0;font-size:14px;font-weight:600;color:#0d2145;">Card / Bank Transfer</p><p id="pro-card-sub" style="margin:0;font-size:12px;color:rgba(13,33,69,0.5);">Visa, Mastercard &amp; more</p></div>
-      </button>
-      <!-- Crypto: shown only when crypto is enabled -->
-      <button id="pro-btn-crypto" onclick="submitProUpgrade('crypto')" class="pro-gateway-btn" style="display:none;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left;transition:border-color 0.18s;" onmouseover="this.style.borderColor='#2d8a5e'" onmouseout="this.style.borderColor='#e2e8f0'">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f7931a" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h4a2 2 0 010 4H9v-4zm0 4h4.5a2 2 0 010 4H9v-4z"/></svg>
-        <div><p style="margin:0;font-size:14px;font-weight:600;color:#0d2145;">Crypto</p><p style="margin:0;font-size:12px;color:rgba(13,33,69,0.5);">BTC, ETH, USDT, 300+ coins</p></div>
-      </button>
+    <!-- KYC-required state: shown instead of gateway options when identity isn't verified yet -->
+    <div id="pro-modal-kyc-required" style="display:none;">
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:14px;padding:16px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-start;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>
+          <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#0d2145;">Verify your identity to continue</p>
+          <p style="margin:0;font-size:13px;font-weight:500;color:rgba(13,33,69,0.65);line-height:1.5;">Kreddlo Pro requires a quick identity check first. It only takes a couple of minutes, and you'll be brought right back here once you're verified.</p>
+        </div>
+      </div>
+      <a id="pro-kyc-verify-link" href="/verify.html?next=upgrade" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2d8a5e;color:#fff;border-radius:12px;padding:14px;font-size:14px;font-weight:700;text-decoration:none;transition:background .15s;width:100%;box-sizing:border-box;" onmouseover="this.style.background='#246f4c'" onmouseout="this.style.background='#2d8a5e'">
+        Verify Identity
+      </a>
     </div>
 
-    <div id="pro-modal-error" style="display:none;font-size:13px;color:#c81e1e;background:#fde8e8;border-radius:10px;padding:10px 14px;margin-bottom:12px;"></div>
-    <div id="pro-modal-loading" style="display:none;text-align:center;padding:8px 0;font-size:13px;color:rgba(13,33,69,0.55);">Preparing checkout…</div>
+    <!-- Gateway-selection state: shown once identity is confirmed verified -->
+    <div id="pro-modal-gateway-section" style="display:none;">
+      <!-- Billing period toggle -->
+      <div style="display:flex;background:rgba(13,33,69,0.05);border-radius:12px;padding:4px;margin-bottom:20px;">
+        <button id="pro-period-monthly" onclick="setProPeriod('monthly')"
+          style="flex:1;padding:9px;border-radius:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.18s;background:#2d8a5e;color:#fff;">
+          Monthly
+        </button>
+        <button id="pro-period-annual" onclick="setProPeriod('annual')"
+          style="flex:1;padding:9px;border-radius:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.18s;background:transparent;color:rgba(13,33,69,0.55);">
+          Annual <span style="font-size:11px;color:#2d8a5e;font-weight:700;">Save 17%</span>
+        </button>
+      </div>
+
+      <p style="font-size:13px;font-weight:500;color:rgba(13,33,69,0.55);margin:0 0 16px;">Choose your payment method:</p>
+
+      <!-- Gateway options — visibility controlled by admin settings -->
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+        <!-- Card / Bank Transfer: shown only when stripe OR flutterwave is enabled; auto-routes to the right processor -->
+        <button id="pro-btn-card" onclick="submitProUpgrade('card')" class="pro-gateway-btn" style="display:none;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left;transition:border-color 0.18s;" onmouseover="this.style.borderColor='#2d8a5e'" onmouseout="this.style.borderColor='#e2e8f0'">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2d8a5e" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <div><p style="margin:0;font-size:14px;font-weight:600;color:#0d2145;">Card / Bank Transfer</p><p id="pro-card-sub" style="margin:0;font-size:12px;color:rgba(13,33,69,0.5);">Visa, Mastercard &amp; more</p></div>
+        </button>
+        <!-- Crypto: shown only when crypto is enabled -->
+        <button id="pro-btn-crypto" onclick="submitProUpgrade('crypto')" class="pro-gateway-btn" style="display:none;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left;transition:border-color 0.18s;" onmouseover="this.style.borderColor='#2d8a5e'" onmouseout="this.style.borderColor='#e2e8f0'">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f7931a" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h4a2 2 0 010 4H9v-4zm0 4h4.5a2 2 0 010 4H9v-4z"/></svg>
+          <div><p style="margin:0;font-size:14px;font-weight:600;color:#0d2145;">Crypto</p><p style="margin:0;font-size:12px;color:rgba(13,33,69,0.5);">BTC, ETH, USDT, 300+ coins</p></div>
+        </button>
+      </div>
+
+      <div id="pro-modal-error" style="display:none;font-size:13px;color:#c81e1e;background:#fde8e8;border-radius:10px;padding:10px 14px;margin-bottom:12px;"></div>
+      <div id="pro-modal-loading" style="display:none;text-align:center;padding:8px 0;font-size:13px;color:rgba(13,33,69,0.55);">Preparing checkout…</div>
+    </div>
   </div>
 </div>
 
@@ -1271,13 +1287,56 @@ function _showUpgradeToast(msg) {
   }, 2800);
 }
 
+// Fix 18: KYC is required before a Pro subscription can be created
+// (see functions/netlify/functions/create-subscription.js). Previously this
+// only surfaced as a checkout failure after the user picked a payment method.
+// Now we check kycStatus up front and show a clear "verify first" state
+// instead, with a link into the existing verify.html?next=upgrade flow which
+// already redirects back here (pricing.html?openUpgrade=1) once verified.
+var _kycStatusCache = null; // cached per page load once resolved, so re-opening the modal doesn't re-fetch
+
+async function _checkKycVerified() {
+  if (_kycStatusCache !== null) return _kycStatusCache;
+  var user = window.auth && window.auth.currentUser;
+  if (!user || !window.db || !window._fsPlatformConfig) return true; // fail-open — backend remains the real guard
+  try {
+    var doc    = window._fsPlatformConfig.doc;
+    var getDoc = window._fsPlatformConfig.getDoc;
+    var snap   = await getDoc(doc(window.db, 'users', user.uid));
+    var verified = snap.exists() && snap.data().kycStatus === 'verified';
+    _kycStatusCache = verified;
+    return verified;
+  } catch (e) {
+    console.warn('[Pricing] Could not check KYC status, proceeding to gateway selection:', e);
+    return true; // fail-open on transient errors — never block a verified user due to a network hiccup
+  }
+}
+
 function handleProUpgrade(defaultPeriod) {
-  function _openProModal() {
+  async function _openProModal() {
     _proUpgradePeriod = defaultPeriod || 'monthly';
     setProPeriod(_proUpgradePeriod);
-    var modal = document.getElementById('pro-upgrade-modal');
+
+    var modal             = document.getElementById('pro-upgrade-modal');
+    var checkingEl        = document.getElementById('pro-modal-checking');
+    var kycRequiredEl     = document.getElementById('pro-modal-kyc-required');
+    var gatewaySectionEl  = document.getElementById('pro-modal-gateway-section');
+
+    // Show the modal immediately with a lightweight "checking" state so the
+    // tap always feels responsive, then swap in the right section.
+    checkingEl.style.display       = 'block';
+    kycRequiredEl.style.display    = 'none';
+    gatewaySectionEl.style.display = 'none';
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+
+    var verified = await _checkKycVerified();
+    checkingEl.style.display = 'none';
+    if (verified) {
+      gatewaySectionEl.style.display = 'block';
+    } else {
+      kycRequiredEl.style.display = 'block';
+    }
   }
   function _redirectToSignup() {
     _showUpgradeToast('Create an account to upgrade to Pro');

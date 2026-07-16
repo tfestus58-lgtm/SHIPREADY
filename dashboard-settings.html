@@ -17,22 +17,8 @@
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <script src="/assets/shared.js" defer></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -1047,6 +1033,20 @@ header > div:last-child {
               </a>
             </div>
 
+            <!-- Fix 18: shown instead of the Upgrade button when identity verification
+                 hasn't been completed yet — Pro checkout requires kycStatus === 'verified'
+                 (see create-subscription.js). Surfacing it here avoids a confusing
+                 failure later at checkout. -->
+            <div id="billing-action-kyc-required" style="display:none;">
+              <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <p style="margin:0;font-size:12.5px;font-weight:500;color:rgba(13,33,69,0.65);line-height:1.5;">Complete identity verification to upgrade to Pro.</p>
+              </div>
+              <a href="/verify.html?next=upgrade" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2d8a5e;color:#fff;border-radius:12px;padding:14px;font-size:14px;font-weight:700;text-decoration:none;transition:background .15s;width:100%;box-sizing:border-box;" onmouseover="this.style.background='#246f4c'" onmouseout="this.style.background='#2d8a5e'">
+                Verify Identity
+              </a>
+            </div>
+
             <div id="billing-action-pro" style="display:none;">
               <button id="billing-cancel-btn" onclick="initiateCancelSubscription()" style="width:100%;background:transparent;border:1.5px solid rgba(220,38,38,0.35);color:#dc2626;border-radius:12px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;" onmouseover="this.style.borderColor='#dc2626';this.style.background='rgba(220,38,38,0.06)'" onmouseout="this.style.borderColor='rgba(220,38,38,0.35)';this.style.background='transparent'">
                 Cancel Subscription
@@ -1206,6 +1206,13 @@ document.getElementById('dt-signout').onclick = handleLogout;
 
 // ============ TABS ============
 function selectTab(tab) {
+  // Belt-and-suspenders guard: buyers never see Plan & Billing (Upgrade to
+  // Pro is freelancer-only). The tab button is already hidden by
+  // applyRoleUI(), but this stops the tab from being reached directly via a
+  // #billing hash, a stale bookmark, or a console call.
+  if (tab === 'billing' && DEMO.role === 'buyer') {
+    tab = 'profile';
+  }
   document.querySelectorAll('.tab-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === tab);
   });
@@ -1963,8 +1970,9 @@ async function toggleAffiliate() {
 // ============ ROLE UI ============
 function applyRoleUI() {
   var isBuyer = DEMO.role === 'buyer';
-  // Tab buttons: hide Wallet, Store, Integrations for buyers
-  var hiddenTabs = ['wallet', 'store', 'integrations'];
+  // Tab buttons: hide Wallet, Store, Integrations, and Plan & Billing (Upgrade
+  // to Pro) for buyers — Pro is a freelancer-only paid tier.
+  var hiddenTabs = ['wallet', 'store', 'integrations', 'billing'];
   hiddenTabs.forEach(function(t) {
     var btn = document.getElementById('tab-btn-' + t);
     if (btn) btn.style.display = isBuyer ? 'none' : '';
@@ -2000,7 +2008,6 @@ window._boot = function(user, role, affiliateEnabled) {
   renderBannerColors();
   updateStoreBioCount();
   document.getElementById('wallet-address-display').textContent = WALLET_ADDRESS || 'Not set';
-  document.getElementById('bell-dot').style.display = 'block';
 
   document.body.style.visibility = 'visible';
 
@@ -2145,6 +2152,8 @@ function _applyBillingUI(data) {
   var actionPro     = document.getElementById('billing-action-pro');
   var actionCancelled = document.getElementById('billing-action-cancelled');
   var cancelledUntil  = document.getElementById('billing-cancelled-until');
+  var actionKycRequired = document.getElementById('billing-action-kyc-required');
+  var kycVerified = data.kycStatus === 'verified';
 
   if (plan === 'pro' && (status === 'active' || status === 'cancelled')) {
     planName.textContent = 'Kreddlo Pro';
@@ -2172,13 +2181,23 @@ function _applyBillingUI(data) {
       actionPro.style.display      = 'block';
       actionCancelled.style.display = 'none';
     }
+    if (actionKycRequired) actionKycRequired.style.display = 'none';
   } else {
     planName.textContent            = 'Free';
     planBadge.style.display         = 'none';
     renewalRow.style.display        = 'none';
-    actionFree.style.display        = 'block';
-    actionPro.style.display         = 'none';
     actionCancelled.style.display   = 'none';
+    actionPro.style.display         = 'none';
+    // Fix 18: Pro checkout requires kycStatus === 'verified'. Surface that
+    // requirement here (Plan & Billing tab) instead of only letting it fail
+    // later at checkout — same logic used in the pricing.html upgrade modal.
+    if (actionKycRequired && !kycVerified) {
+      actionFree.style.display        = 'none';
+      actionKycRequired.style.display = 'block';
+    } else {
+      actionFree.style.display        = 'block';
+      if (actionKycRequired) actionKycRequired.style.display = 'none';
+    }
   }
 }
 
@@ -2382,7 +2401,7 @@ async function _registerFcmToken(msg) {
     var tokenOptions = { vapidKey: VAPID_KEY };
     if (swReg) tokenOptions.serviceWorkerRegistration = swReg;
 
-    var token = await getToken(messaging, tokenOptions);
+    var token = await window.fsGetToken(messaging, tokenOptions);
     if (!token) {
       _setPushMsg(msg, 'Could not get push token. Check browser notification settings.', '#c81e1e');
       return;

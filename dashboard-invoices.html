@@ -17,21 +17,7 @@
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -1000,10 +986,21 @@ function loadInvoices() {
   document.getElementById('inv-table-wrap').classList.add('inv-hidden');
   document.getElementById('inv-cards-wrap').classList.add('inv-hidden');
 
-  var q = query(collection(db, 'invoices'), where('uid', '==', _uid), orderBy('createdAt', 'desc'));
+  // Try the indexed query (with orderBy) first. If the composite index is not
+  // yet deployed this throws FAILED_PRECONDITION — in that case we fall back to
+  // a simple equality query and sort client-side so invoices still appear.
+  var indexedQuery = query(collection(db, 'invoices'), where('uid', '==', _uid), orderBy('createdAt', 'desc'));
+  var fallbackQuery = query(collection(db, 'invoices'), where('uid', '==', _uid));
 
-  _invoicesUnsubscribe = onSnapshot(q, function(snap) {
+  function attachInvoicesListener(firestoreQuery, isFallback) {
+    _invoicesUnsubscribe = onSnapshot(firestoreQuery, function(snap) {
     _invoices = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    // Client-side sort: newest first (handles fallback query which has no orderBy)
+    _invoices.sort(function(a, b) {
+      var ta = a.createdAt ? (typeof a.createdAt.toMillis === 'function' ? a.createdAt.toMillis() : new Date(a.createdAt).getTime()) : 0;
+      var tb = b.createdAt ? (typeof b.createdAt.toMillis === 'function' ? b.createdAt.toMillis() : new Date(b.createdAt).getTime()) : 0;
+      return tb - ta;
+    });
     document.getElementById('inv-loading').style.display = 'none';
 
   // Stats — accumulate per currency so mixed-currency invoices never bleed
@@ -1100,6 +1097,13 @@ function loadInvoices() {
 
   }, function(err) {
     document.getElementById('inv-loading').style.display = 'none';
+    if (!isFallback && err && (err.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(err.message || ''))) {
+      console.warn('[loadInvoices] Composite index not yet ready — falling back to unordered query. Run: firebase deploy --only firestore:indexes');
+      // Tear down the failed listener and attach on the simpler query
+      if (_invoicesUnsubscribe) { _invoicesUnsubscribe(); _invoicesUnsubscribe = null; }
+      attachInvoicesListener(fallbackQuery, true);
+      return;
+    }
     if (err && (err.code === 'failed-precondition' || /FAILED_PRECONDITION/i.test(err.message || ''))) {
       console.error('[loadInvoices] missing composite index on invoices.uid + invoices.createdAt — see FIRESTORE_INDEXES.md, or check this error for a Firebase auto-create link:', err);
       showToast('Setting up — try again in a minute.');
@@ -1109,7 +1113,10 @@ function loadInvoices() {
     }
     document.getElementById('inv-empty').style.display = 'block';
     document.body.style.visibility = 'visible';
-  });
+    });
+  }
+
+  attachInvoicesListener(indexedQuery, false);
 }
 
 function _settingsCurrency() {

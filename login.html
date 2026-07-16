@@ -28,24 +28,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:          '#0d2145',
-            green:         '#2d8a5e',
-            'green-light': '#3dbd7a',
-            cream:         '#f8f9fb',
-            border:        '#e2e8f0',
-          },
-          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-          borderRadius: { pill: '50px' },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -667,6 +650,34 @@
         el.classList.add('visible');
       }
     }
+
+    /* ── Auto-redirect an already-authenticated visitor ──
+       If a visitor lands on the login page with a valid, persisted Firebase
+       session (e.g. they're already logged in on this device and hit
+       /login.html directly, or via a bookmark/back button), send them
+       straight to their dashboard instead of showing the login form.
+       Reuses the exact same routing rules as a fresh sign-in (suspended,
+       email-verification, role, KYC-pending) via redirect(). Unsubscribes
+       after the first callback so this never fires again once the visitor
+       explicitly submits the form below (which has its own, separate 2FA
+       gate that must not be bypassed). */
+    (async function _autoRedirectIfLoggedIn() {
+      const ready = await waitForFirebase();
+      if (!ready || !window.auth) return; // Firebase didn't load — let the form work as a fallback
+      const _unsubAuto = window.auth.onAuthStateChanged(async function(user) {
+        _unsubAuto();
+        if (!user) return;
+        try {
+          const { getDoc, doc } = window._fbReady;
+          const snap = await getDoc(doc(window.db, 'users', user.uid));
+          if (!snap.exists()) return; // no profile yet — let them proceed via the form normally
+          await redirect(snap.data());
+        } catch (e) {
+          console.warn('[Login] Could not verify existing session:', e);
+          // non-fatal — the login form remains fully usable
+        }
+      });
+    })();
   </script>
 
 <script>

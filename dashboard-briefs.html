@@ -18,21 +18,7 @@
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -572,7 +558,27 @@ if ('serviceWorker' in navigator) {
 
       loadCredits();
       loadMyPitches(user.uid);
-    }).catch(function() { window.location.href = '/login.html?next=/dashboard-briefs.html'; });
+    }).catch(function(err) {
+      // Fix 10: a transient Firestore/network error here does NOT mean the
+      // user is logged out (Firebase Auth session is untouched) — only
+      // redirect to login on a real auth failure. Otherwise keep the user
+      // on the page and let them retry.
+      console.error('[dashboard-briefs] Profile check failed — keeping session, not logging out:', err);
+      document.body.style.visibility = 'visible';
+      if (!document.getElementById('auth-retry-banner')) {
+        var b = document.createElement('div');
+        b.id = 'auth-retry-banner';
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;padding:10px 14px;font-size:13px;line-height:1.4;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+        var m = document.createElement('span');
+        m.textContent = "Couldn't load your session. Check your connection and retry.";
+        var btn = document.createElement('button');
+        btn.textContent = 'Retry';
+        btn.style.cssText = 'background:#fff;color:#1f2937;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;flex-shrink:0;';
+        btn.onclick = function(){ window.location.reload(); };
+        b.appendChild(m); b.appendChild(btn);
+        document.body.appendChild(b);
+      }
+    });
   });
 </script>
 </body>

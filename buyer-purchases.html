@@ -25,21 +25,7 @@
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy:'#0d2145','navy-deep':'#091830','navy-mid':'#162f5e',
-        green:'#2d8a5e','green-light':'#3dbd7a','green-pale':'#e8f5ef',
-        cream:'#f8f9fb',border:'#e2e8f0'
-      },
-      fontFamily:{ sans:['Plus Jakarta Sans','sans-serif'] }
-    }
-  }
-};
-</script>
+<link rel="stylesheet" href="/assets/tailwind.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145;margin:0;padding:0;-webkit-font-smoothing:antialiased}
@@ -104,10 +90,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#f8f9fb;color:#0d2145
 @keyframes fu{to{opacity:1;transform:translateY(0)}}
 .fu-1{animation-delay:.05s}.fu-2{animation-delay:.12s}.fu-3{animation-delay:.19s}
 
-/* ── TOAST ── */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:#091830;color:#fff;border-radius:50px;padding:11px 22px;font-size:13px;font-weight:600;z-index:3000;opacity:0;pointer-events:none;transition:transform .25s,opacity .25s;white-space:nowrap;max-width:90vw;text-align:center}
-.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
-
 /* ── RESPONSIVE ── */
 @media(min-width:1024px){
   #sidebar{display:flex!important}
@@ -171,12 +153,7 @@ body { overflow-x: hidden !important; }
   text-overflow: ellipsis;
 }
 
-/* 7. TOAST — above safe area on mobile */
-#toast {
-  bottom: max(24px, env(safe-area-inset-bottom, 24px)) !important;
-}
-
-/* 8. MODALS — full width on mobile */
+/* 7. MODALS — full width on mobile */
 @media (max-width: 600px) {
   .modal-box {
     max-width: 100% !important;
@@ -185,12 +162,12 @@ body { overflow-x: hidden !important; }
   }
 }
 
-/* 9. PURCHASE CARDS — comfortable on small screens */
+/* 8. PURCHASE CARDS — comfortable on small screens */
 @media (max-width: 479px) {
   .purchase-card { padding: 16px !important; }
 }
 
-/* 10. DESKTOP TABLE — hidden on mobile, shown on desktop */
+/* 9. DESKTOP TABLE — hidden on mobile, shown on desktop */
 #desktop-purchases { display: none !important; }
 #mobile-purchases  { display: block !important; }
 @media (min-width: 768px) {
@@ -198,7 +175,7 @@ body { overflow-x: hidden !important; }
   #mobile-purchases  { display: none !important; }
 }
 
-/* 11. DESKTOP TABLE ROW hover */
+/* 10. DESKTOP TABLE ROW hover */
 .tbl-row { transition: background .15s; }
 .tbl-row:hover { background: rgba(13,33,69,0.02); }
 .tbl-row + .tbl-row { border-top: 1px solid #f0f2f6; }
@@ -343,9 +320,6 @@ body { overflow-x: hidden !important; }
   </main>
 </div>
 
-<!-- TOAST -->
-<div id="toast" class="toast"></div>
-
 <script>
 // ══════════════════════════════════════════
 //  DEMO USER
@@ -417,16 +391,6 @@ function closeMobileMenu() {
   document.getElementById('mobile-menu').classList.remove('open');
   document.getElementById('mobile-dim').classList.remove('open');
   document.body.style.overflow = '';
-}
-
-// ══════════════════════════════════════════
-//  TOAST
-// ══════════════════════════════════════════
-function showToast(msg) {
-  var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(function(){ t.classList.remove('show'); }, 3000);
 }
 
 // ══════════════════════════════════════════
@@ -891,7 +855,27 @@ if ('serviceWorker' in navigator) {
         return;
       }
       if (typeof window._boot === 'function') window._boot(user, snap.data());
-    }).catch(function() { window.location.href = '/login.html'; });
+    }).catch(function(err) {
+      // Fix 10: a transient Firestore/network error here does NOT mean the
+      // user is logged out (Firebase Auth session is untouched) — only
+      // redirect to login on a real auth failure. Otherwise keep the user
+      // on the page and let them retry.
+      console.error('[buyer-purchases] Profile check failed — keeping session, not logging out:', err);
+      document.body.style.visibility = 'visible';
+      if (!document.getElementById('auth-retry-banner')) {
+        var b = document.createElement('div');
+        b.id = 'auth-retry-banner';
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;padding:10px 14px;font-size:13px;line-height:1.4;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+        var m = document.createElement('span');
+        m.textContent = "Couldn't load your session. Check your connection and retry.";
+        var btn = document.createElement('button');
+        btn.textContent = 'Retry';
+        btn.style.cssText = 'background:#fff;color:#1f2937;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;flex-shrink:0;';
+        btn.onclick = function(){ window.location.reload(); };
+        b.appendChild(m); b.appendChild(btn);
+        document.body.appendChild(b);
+      }
+    });
   });
 </script>
 </body>

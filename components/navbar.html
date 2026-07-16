@@ -115,15 +115,29 @@
 
   /* Run immediately if Firebase is already initialised */
   function listenAuth() {
-    if (window.auth && window.onAuthStateChanged) {
-      window.onAuthStateChanged(window.auth, applyAuthState);
+    function attach() {
+      if (window.auth && window.onAuthStateChanged) {
+        window.onAuthStateChanged(window.auth, applyAuthState);
+      } else if (window.auth && window._onAuthStateChanged) {
+        /* Some pages expose a pre-bound wrapper instead of the raw import */
+        window._onAuthStateChanged(applyAuthState);
+      }
+    }
+
+    // Fix 17: the 'kreddlo-firebase-ready' event only fires once and is not
+    // replayed. This component is fetched asynchronously (see loadComponent()
+    // in shared.js), so it can attach its listener *after* the host page has
+    // already dispatched the event — missing it forever and leaving the nav
+    // stuck on the logged-out state. window.kreddloFirebaseReady is a
+    // persistent flag set at the same moment the event fires, so checking it
+    // first makes this work regardless of load order.
+    if (window.kreddloFirebaseReady && window.auth) {
+      attach();
+    } else if (window.auth && (window.onAuthStateChanged || window._onAuthStateChanged)) {
+      attach();
     } else {
       /* Wait for the page to initialise Firebase */
-      window.addEventListener('kreddlo-firebase-ready', function () {
-        if (window.auth && window.onAuthStateChanged) {
-          window.onAuthStateChanged(window.auth, applyAuthState);
-        }
-      }, { once: true });
+      window.addEventListener('kreddlo-firebase-ready', attach, { once: true });
     }
   }
 

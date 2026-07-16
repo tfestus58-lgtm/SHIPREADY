@@ -19,24 +19,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:          '#0d2145',
-            green:         '#2d8a5e',
-            'green-light': '#3dbd7a',
-            cream:         '#f8f9fb',
-            border:        '#e2e8f0',
-          },
-          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-          borderRadius: { pill: '50px' },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -373,6 +356,36 @@
     /* ── Already-submitted state ── */
     #submitted-state { display: none; }
     #submit-form-state { display: block; }
+
+    /* ── Document type select ── */
+    .select-field {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      background-color: rgba(255,255,255,0.55);
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230d2145' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 14px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 13px 40px 13px 14px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: #0d2145;
+      cursor: pointer;
+      min-height: 50px;
+      transition: border-color .18s, background .18s;
+      /* Comfortable tap target on mobile */
+      -webkit-tap-highlight-color: rgba(45,138,94,0.1);
+    }
+    .select-field:focus,
+    .select-field:focus-visible {
+      outline: none;
+      border-color: #2d8a5e;
+      background-color: rgba(45,138,94,0.04);
+    }
   </style>
 
   <!-- Firebase — Auth + Firestore only (no Storage; files go through Netlify function) -->
@@ -486,7 +499,7 @@
           </div>
           <div>
             <p class="text-[20px] font-extrabold text-navy tracking-[-0.5px] mb-1">Submission Under Review</p>
-            <p class="text-[14px] text-navy/50 leading-relaxed max-w-xs mx-auto">Your NIN card photos have been received and are being reviewed by our team. This usually takes 1–2 business days.</p>
+            <p class="text-[14px] text-navy/50 leading-relaxed max-w-xs mx-auto">Your identity documents have been received and are being reviewed by our team. This usually takes 1–2 business days.</p>
           </div>
           <a href="dashboard.html" class="btn-green mt-2" style="text-decoration:none;max-width:260px;">
             Go to Dashboard
@@ -548,7 +561,7 @@
         <h1 class="text-[22px] sm:text-[26px] font-extrabold text-navy tracking-[-0.6px] mb-1.5">
           Verify Your Identity
         </h1>
-        <p class="text-[14px] text-navy/50 font-normal leading-relaxed max-w-xs mx-auto">
+        <p class="text-[14px] text-navy/50 font-normal leading-relaxed max-w-xs mx-auto" id="intro-subtext">
           Upload photos of your NIN card to unlock payments and your public profile.
         </p>
       </div>
@@ -558,7 +571,7 @@
 
         <div class="step-item active" id="item-1">
           <div class="step-circle active" id="circle-1">1</div>
-          <span class="step-label">NIN Card</span>
+          <span class="step-label">ID Document</span>
         </div>
 
         <div class="step-connector" id="conn-1"></div>
@@ -588,9 +601,21 @@
       ════════════════════════════════ -->
       <div class="step-section active" id="step-1">
 
+        <!-- Document type selector -->
         <div class="mb-5">
-          <p class="text-[15px] font-bold text-navy tracking-[-0.3px] mb-1">NIN Card — Front &amp; Back</p>
-          <p class="text-[13px] text-navy/50 leading-relaxed">
+          <p class="text-[12px] font-bold text-navy/55 uppercase tracking-widest mb-2">Document Type</p>
+          <select id="doc-type-select" class="select-field" onchange="handleDocTypeChange()">
+            <option value="NIN Card">National Identity Number (NIN) Card</option>
+            <option value="International Passport">International Passport</option>
+            <option value="Driver&#39;s License">Driver's License</option>
+            <option value="Voter&#39;s Card">Voter's Card (PVC)</option>
+            <option value="National ID Card">National ID Card</option>
+          </select>
+        </div>
+
+        <div class="mb-5">
+          <p class="text-[15px] font-bold text-navy tracking-[-0.3px] mb-1" id="doc-heading">NIN Card — Front &amp; Back</p>
+          <p class="text-[13px] text-navy/50 leading-relaxed" id="doc-subtext">
             Take clear photos of both sides of your National Identity Number (NIN) card. Make sure all text is readable and there is no glare.
           </p>
         </div>
@@ -762,13 +787,13 @@
             <div class="thumb-item" id="thumb-front">
               <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="rgba(13,33,69,0.25)" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="3"/></svg>
             </div>
-            <p class="thumb-label">NIN Front</p>
+            <p class="thumb-label" id="thumb-label-front">NIN Front</p>
           </div>
           <div>
             <div class="thumb-item" id="thumb-back">
               <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="rgba(13,33,69,0.25)" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="3"/></svg>
             </div>
-            <p class="thumb-label">NIN Back</p>
+            <p class="thumb-label" id="thumb-label-back">NIN Back</p>
           </div>
           <div>
             <div class="thumb-item" id="thumb-selfie">
@@ -793,7 +818,7 @@
             </svg>
             <div>
               <p class="font-bold text-[14px] text-navy mb-1">Submission Received</p>
-              <p class="text-[13px] text-navy/60">Your NIN card photos and selfie have been uploaded. Our team will review them and notify you by email within 1–2 business days.</p>
+              <p class="text-[13px] text-navy/60">Your identity documents and selfie have been uploaded. Our team will review them and notify you by email within 1–2 business days.</p>
             </div>
           </div>
         </div>
@@ -851,6 +876,48 @@
   ══════════════════════════════════════ */
   const files = { front: null, back: null, selfie: null };
   let currentStep = 1;
+  let selectedDocType = 'NIN Card';
+
+  /* ══════════════════════════════════════
+     DOCUMENT TYPE
+  ══════════════════════════════════════ */
+  const DOC_TYPE_INFO = {
+    'NIN Card': {
+      short: 'NIN Card',
+      subtext: 'Take clear photos of both sides of your National Identity Number (NIN) card. Make sure all text is readable and there is no glare.'
+    },
+    'International Passport': {
+      short: 'Passport',
+      subtext: 'Take clear photos of your passport photo page (front) and the following page (back). Make sure all text is readable and there is no glare.'
+    },
+    "Driver's License": {
+      short: "Driver's License",
+      subtext: "Take clear photos of both sides of your driver's license. Make sure all text is readable and there is no glare."
+    },
+    "Voter's Card": {
+      short: "Voter's Card",
+      subtext: "Take clear photos of both sides of your voter's card (PVC). Make sure all text is readable and there is no glare."
+    },
+    'National ID Card': {
+      short: 'National ID Card',
+      subtext: 'Take clear photos of both sides of your national ID card. Make sure all text is readable and there is no glare.'
+    }
+  };
+
+  function handleDocTypeChange() {
+    const sel = document.getElementById('doc-type-select');
+    selectedDocType = sel.value;
+    const info = DOC_TYPE_INFO[selectedDocType] || DOC_TYPE_INFO['NIN Card'];
+
+    document.getElementById('doc-heading').textContent = info.short + ' — Front & Back';
+    document.getElementById('doc-subtext').textContent = info.subtext;
+    document.getElementById('intro-subtext').textContent = 'Upload photos of your ' + info.short + ' to unlock payments and your public profile.';
+
+    const labelFront = document.getElementById('thumb-label-front');
+    const labelBack  = document.getElementById('thumb-label-back');
+    if (labelFront) labelFront.textContent = info.short + ' Front';
+    if (labelBack)  labelBack.textContent  = info.short + ' Back';
+  }
 
 
   /* ══════════════════════════════════════
@@ -1107,10 +1174,11 @@
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _kycToken },
         body: JSON.stringify({
-          uid:        window._currentUid,
-          frontImage: frontB64,
-          backImage:  backB64,
-          selfieImage: selfieB64,
+          uid:          window._currentUid,
+          documentType: selectedDocType,
+          frontImage:   frontB64,
+          backImage:    backB64,
+          selfieImage:  selfieB64,
         }),
       });
 

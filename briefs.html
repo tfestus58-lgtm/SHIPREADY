@@ -30,32 +30,7 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
   <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:          '#0d2145',
-            'navy-deep':   '#091830',
-            'navy-mid':    '#162f5e',
-            green:         '#2d8a5e',
-            'green-light': '#3dbd7a',
-            'green-pale':  '#e8f5ef',
-            cream:         '#f8f9fb',
-            border:        '#e2e8f0',
-          },
-          fontFamily: {
-            sans: ['Plus Jakarta Sans', 'sans-serif'],
-          },
-          borderRadius: {
-            pill: '50px',
-            card: '20px',
-          },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     /* ── Base ── */
@@ -277,17 +252,6 @@
 
     /* ── Focus-visible global ── */
     :focus-visible { outline: 2px solid #2d8a5e; outline-offset: 2px; }
-
-    /* ── Toast ── */
-    #briefs-toast {
-      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px);
-      background: #091830; color: #fff; border-radius: 50px;
-      padding: 11px 22px; font-size: 13px; font-weight: 600;
-      z-index: 3000; opacity: 0; pointer-events: none;
-      transition: transform .25s, opacity .25s; white-space: nowrap;
-      max-width: 90vw; text-align: center;
-    }
-    #briefs-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   </style>
 
   <!-- Firebase CDN -->
@@ -312,6 +276,9 @@
 
     window._firebaseReady = true;
     window._onAuthStateChanged = (cb) => onAuthStateChanged(window.auth, cb);
+    // Fix 17: persistent, replay-safe flag for the shared navbar component —
+    // see components/navbar.html's listenAuth() for why this is needed.
+    window.kreddloFirebaseReady = true;
     window.dispatchEvent(new Event('kreddlo-firebase-ready'));
 
     // Load social links from Firestore config
@@ -338,7 +305,13 @@
       const dashLinkD        = document.getElementById('nav-briefs-dash-desktop');
       const dashLinkM        = document.getElementById('nav-briefs-dash-mobile');
 
-      if (!user) { window._kreddloRole = null; return; } // keep public nav
+      if (!user) {
+        window._kreddloRole = null;
+        if (typeof window._reRenderBriefsForRole === 'function') {
+          window._reRenderBriefsForRole();
+        }
+        return; // keep public nav
+      }
 
       let dashHref = '/dashboard.html';
       try {
@@ -798,9 +771,6 @@
     </div>
   </footer>
 
-  <!-- Toast -->
-  <div id="briefs-toast"></div>
-
   <!-- ══════════════════════════════════
        RESPONSIVE STYLE INJECTION
        (Mobile-first base here in the stylesheet, not inline — inline
@@ -812,7 +782,7 @@
     /* Hero */
     #briefs-hero-title { font-size: 24px; }
     #briefs-hero-flex { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-    #briefs-post-btn { display: inline-flex; }
+    #briefs-post-btn { display: none; } /* Fix 3: hidden until role check confirms 'buyer' — see updateHeroPostBriefBtn() */
 
     /* Filter row */
     #briefs-filter-row { display: flex; flex-direction: column; gap: 10px; }
@@ -874,18 +844,6 @@
     });
 
     document.getElementById('yr').textContent = new Date().getFullYear();
-
-    /* ────────────────────────────────────
-       TOAST
-    ──────────────────────────────────── */
-    var toastTimer = null;
-    function showToast(msg) {
-      var el = document.getElementById('briefs-toast');
-      el.textContent = msg;
-      el.classList.add('show');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2600);
-    }
 
     /* ────────────────────────────────────
        HELPERS
@@ -1095,9 +1053,20 @@
       countEl.textContent = filtered.length + (filtered.length === 1 ? ' Brief' : ' Briefs') + ' found';
     }
 
+    // Fix 3: header "Post a Brief" button — same role check already used
+    // by the empty-state CTAs above (canPostBrief). Button is hidden by
+    // default in CSS (#briefs-post-btn { display:none }) so freelancers/
+    // anonymous visitors never see it, even for a moment before role
+    // resolves; this only ever switches it ON for confirmed buyers.
+    function updateHeroPostBriefBtn() {
+      var heroBtn = document.getElementById('briefs-post-btn');
+      if (heroBtn) heroBtn.style.display = (window._kreddloRole === 'buyer') ? 'inline-flex' : 'none';
+    }
+
     // Exposed so the auth callback can re-render the empty-state CTA once
     // the user's role is known (role often resolves after the first render).
     window._reRenderBriefsForRole = function() {
+      updateHeroPostBriefBtn();
       if (!applyFilters().length) renderBriefs();
     };
 
@@ -1208,6 +1177,7 @@
     /* ────────────────────────────────────
        INIT
     ──────────────────────────────────── */
+    updateHeroPostBriefBtn(); // syncs immediately if role already resolved (e.g. cached auth)
     loadBriefs(1);
   </script>
 </body>

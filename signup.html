@@ -28,24 +28,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:        '#0d2145',
-            green:       '#2d8a5e',
-            'green-light': '#3dbd7a',
-            cream:       '#f8f9fb',
-            border:      '#e2e8f0',
-          },
-          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-          borderRadius: { pill: '50px' },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -427,6 +410,55 @@
   </div><!-- /page-bg -->
 
   <script>
+    /* ── Auto-redirect an already-authenticated visitor ──
+       If someone lands on the signup page with a valid, persisted Firebase
+       session already active (e.g. already logged in on this device and
+       hits /signup.html directly), send them to their dashboard instead of
+       showing a "create account" form. Mirrors the same routing rules used
+       in login.html's redirect(). Suspended accounts are intentionally left
+       alone here (no error UI on this page) rather than auto-redirected —
+       they're already blocked from doing anything useful elsewhere. */
+    (async function _autoRedirectIfLoggedIn() {
+      try {
+        let waited = 0;
+        while (!window._fbReady && waited < 8000) {
+          await new Promise(r => setTimeout(r, 80));
+          waited += 80;
+        }
+        if (!window._fbReady || !window.auth) return; // Firebase didn't load — let the form work as a fallback
+
+        const _unsubAuto = window.auth.onAuthStateChanged(async function(user) {
+          _unsubAuto();
+          if (!user) return;
+          try {
+            const { getDoc, doc } = window._fbReady;
+            const snap = await getDoc(doc(window.db, 'users', user.uid));
+            if (!snap.exists()) return; // no profile yet — let the form work as normal
+            const userData = snap.data();
+
+            if (userData.suspended === true) return; // leave the page as-is, no redirect
+
+            if (userData.emailVerified !== true && userData.role !== 'admin' && userData.role !== 'buyer') {
+              window.location.href = 'email-confirm.html?uid=' + encodeURIComponent(user.uid) + '&email=' + encodeURIComponent(userData.email || '');
+              return;
+            }
+            if (userData.role === 'admin') {
+              window.location.href = 'admin.html';
+            } else if (userData.role === 'buyer') {
+              window.location.href = 'buyer-dashboard.html';
+            } else if (userData.kycStatus === 'pending') {
+              window.location.href = 'verify.html';
+            } else {
+              window.location.href = 'dashboard.html';
+            }
+          } catch (e) {
+            console.warn('[Signup] Could not verify existing session:', e);
+            // non-fatal — the signup form remains fully usable
+          }
+        });
+      } catch (e) { /* non-fatal */ }
+    })();
+
     /* ── Role state ── */
     let currentRole = 'freelancer';
 

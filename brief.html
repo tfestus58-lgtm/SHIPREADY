@@ -30,32 +30,7 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 
   <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            navy:          '#0d2145',
-            'navy-deep':   '#091830',
-            'navy-mid':    '#162f5e',
-            green:         '#2d8a5e',
-            'green-light': '#3dbd7a',
-            'green-pale':  '#e8f5ef',
-            cream:         '#f8f9fb',
-            border:        '#e2e8f0',
-          },
-          fontFamily: {
-            sans: ['Plus Jakarta Sans', 'sans-serif'],
-          },
-          borderRadius: {
-            pill: '50px',
-            card: '20px',
-          },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/tailwind.css">
 
   <style>
     /* ── Base ── */
@@ -234,6 +209,9 @@
 
     window._firebaseReady = true;
     window._onAuthStateChanged = (cb) => onAuthStateChanged(window.auth, cb);
+    // Fix 17: persistent, replay-safe flag for the shared navbar component —
+    // see components/navbar.html's listenAuth() for why this is needed.
+    window.kreddloFirebaseReady = true;
     window.dispatchEvent(new Event('kreddlo-firebase-ready'));
 
     // Load social links from Firestore config
