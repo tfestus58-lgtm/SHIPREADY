@@ -239,6 +239,33 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
         // Already processed this — idempotent no-op on retry/duplicate delivery.
         return { resolved: true, action: 'already_confirmed' };
       }
+      /*
+       * Cross-branch guard — this function has two independent callers
+       * (the live webhook above, and reconcile-stuck-payouts.js's
+       * scheduled poller), and NOWPayments status corrections after an
+       * initial failure are a real occurrence with third-party payout
+       * processors. If this payout was already refunded (FAILED_STATUSES
+       * branch below set refunded:true) and NOWPayments now reports
+       * "finished", that's a genuine contradiction: the user's balance
+       * was already restored internally, so silently marking this
+       * confirmed too would leave no trace that a double-payment may
+       * have occurred (refund credited AND crypto actually sent). Record
+       * the conflict loudly instead of resolving it automatically — this
+       * needs a human to check NOWPayments' dashboard for the real
+       * outcome and reconcile the user's balance by hand if needed.
+       */
+      if (data.refunded === true) {
+        console.error(`[payout-webhook] CONTRADICTION: payout ${payoutRef.id} was already refunded, but NOWPayments now reports "${rawStatus}" (finished). Balance may have been double-credited — needs manual reconciliation. NOT auto-resolving.`);
+        await payoutRef.update({
+          nowStatus:            rawStatus,
+          txHash:                txHash || null,
+          statusConflict:        true,
+          statusConflictDetail: `Refunded, then NOWPayments reported "${rawStatus}".`,
+          statusConflictAt:      new Date(),
+          updatedAt:             new Date(),
+        }).catch(err => console.warn('[payout-webhook] Conflict-flag update failed:', err.message));
+        return { resolved: false, action: 'conflict_already_refunded' };
+      }
       await payoutRef.update({
         nowStatus:   rawStatus,
         confirmed:   true,
@@ -256,6 +283,7 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
   /* ── Failed / rejected / expired — refund the user, idempotently ── */
   if (FAILED_STATUSES.has(rawStatus)) {
     let alreadyRefunded = false;
+    let statusConflictDetected = false;
     let refundAmount    = 0;
     let refundUid       = null;
 
@@ -269,6 +297,32 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
         // the same failure in the same time window.
         if (data.refunded === true) {
           alreadyRefunded = true;
+          return;
+        }
+
+        /*
+         * Cross-branch guard — the critical direction. If this payout was
+         * already confirmed successful (SUCCESS_STATUSES branch above set
+         * confirmed:true — meaning NOWPayments already reported the crypto
+         * as sent), a later "failed" status for the same withdrawal is a
+         * genuine contradiction, not a normal retry. Refunding here on top
+         * of an already-completed payout would hand the user a free
+         * balance credit for money that already left the platform's
+         * wallet. Flag it for manual review instead of auto-refunding —
+         * same reasoning as the symmetric guard in the SUCCESS branch,
+         * just the direction that actually moves money if resolved wrong.
+         */
+        if (data.confirmed === true) {
+          console.error(`[payout-webhook] CONTRADICTION: payout ${payoutRef.id} was already confirmed, but NOWPayments now reports "${rawStatus}". Refusing to auto-refund — would double-credit the user. Needs manual reconciliation.`);
+          tx.update(payoutRef, {
+            nowStatus:            rawStatus,
+            statusConflict:        true,
+            statusConflictDetail: `Confirmed, then NOWPayments reported "${rawStatus}".`,
+            statusConflictAt:      new Date(),
+            updatedAt:             new Date(),
+          });
+          alreadyRefunded = true; // reuse the existing early-return path — no refund, no notification
+          statusConflictDetected = true;
           return;
         }
 
@@ -321,12 +375,16 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
                 const amt = Number(debit) || 0;
                 if (amt > 0) {
                   affiliateRefundPayload['affiliateBalances.' + ccy] = FieldValue.increment(amt);
+                  // Reverse the same amount from per-currency "Paid Out" tracking
+                  // (dashboard-affiliate.html Issue 9 fix) since the payout failed.
+                  affiliateRefundPayload['affiliateTotalPaidByCurrency.' + ccy] = FieldValue.increment(-amt);
                 }
               });
             } else {
               // Legacy fallback — payout doc has no currencyDebits (pre-fix).
               // Restore USD bucket only, matching the old debit behaviour.
               affiliateRefundPayload['affiliateBalances.USD'] = FieldValue.increment(refundAmount);
+              affiliateRefundPayload['affiliateTotalPaidByCurrency.USD'] = FieldValue.increment(-refundAmount);
             }
 
             tx.update(userRef, affiliateRefundPayload);
@@ -348,7 +406,9 @@ async function processPayoutStatusUpdate(db, env, { withdrawalId, batchId, extra
     }
 
     if (alreadyRefunded) {
-      return { resolved: true, action: 'already_refunded' };
+      return statusConflictDetected
+        ? { resolved: false, action: 'conflict_already_confirmed' }
+        : { resolved: true, action: 'already_refunded' };
     }
 
     console.log(`[payout-webhook] Payout ${payoutRef.id} ${rawStatus} — refunded ${refundAmount} to uid ${refundUid}.`);

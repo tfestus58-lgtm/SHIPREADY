@@ -449,11 +449,15 @@ export default {
             if (debit === 0) return;
             currencyDebits[ccy] = debit;
             updatePayload[`affiliateBalances.${ccy}`] = FieldValue.increment(-debit);
+            // Accurate per-currency "Paid Out" tracking (dashboard-affiliate.html
+            // Issue 9 fix) — mirrors the exact debit above, going forward only.
+            updatePayload[`affiliateTotalPaidByCurrency.${ccy}`] = FieldValue.increment(debit);
           });
         } else {
           // Fallback: map is absent (legacy user) — debit USD bucket only.
           currencyDebits = { USD: grossUsd };
           updatePayload['affiliateBalances.USD'] = FieldValue.increment(-grossUsd);
+          updatePayload['affiliateTotalPaidByCurrency.USD'] = FieldValue.increment(grossUsd);
         }
 
         tx.update(userRef, updatePayload);
@@ -525,6 +529,7 @@ export default {
         };
         Object.entries(currencyDebits).forEach(([ccy, debit]) => {
           refundPayload[`affiliateBalances.${ccy}`] = FieldValue.increment(debit);
+          refundPayload[`affiliateTotalPaidByCurrency.${ccy}`] = FieldValue.increment(-debit);
         });
         await db.collection('users').doc(uid).update(refundPayload);
       } catch (refundErr) {
@@ -638,6 +643,7 @@ export default {
         // Restore each currency bucket by exactly the amount that was deducted.
         Object.entries(currencyDebits).forEach(([ccy, debit]) => {
           refundPayload[`affiliateBalances.${ccy}`] = FieldValue.increment(debit);
+          refundPayload[`affiliateTotalPaidByCurrency.${ccy}`] = FieldValue.increment(-debit);
         });
         await db.collection('users').doc(uid).update(refundPayload);
       } catch (refundErr) {

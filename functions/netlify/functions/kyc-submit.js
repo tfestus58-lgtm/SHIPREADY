@@ -23,6 +23,19 @@ import { checkRateLimit } from './_rate-limit';
 import { sanitizeString } from './_sanitize';
 // Cloudflare Workers exposes the Web Crypto API as a global `crypto` object.
 
+/* ── Allowed KYC document types ──
+   Kept in sync with the <select id="doc-type-select"> options in verify.html.
+   Anything outside this list (bad client, stale cache, tampered request) is
+   coerced to the 'NIN Card' default rather than rejected outright, so a
+   malformed/missing value never blocks a legitimate submission. */
+const ALLOWED_DOCUMENT_TYPES = [
+  'NIN Card',
+  'International Passport',
+  "Driver's License",
+  "Voter's Card",
+  'National ID Card',
+];
+
 /* ── Firebase Admin singleton ── */
 function getDb(env) {
   if (!getApps().length) {
@@ -95,7 +108,7 @@ async function uploadToCloudinary(base64Data, mimeType, publicId, env) {
 }
 
 /* ── Optional admin notification email ── */
-async function notifyAdmin({ uid, adminEmail, platformUrl, env }) {
+async function notifyAdmin({ uid, adminEmail, platformUrl, env, documentType }) {
   const apiKey = env.BREVO_API_KEY;
   if (!apiKey || !adminEmail) return;
 
@@ -104,6 +117,7 @@ async function notifyAdmin({ uid, adminEmail, platformUrl, env }) {
   // platformUrl is passed in by the caller (sourced from env.PLATFORM_URL);
   // the literal string below is only a last-resort fallback if that env var is unset.
   const reviewUrl   = (platformUrl || env.PLATFORM_URL || 'https://kreddlo.space') + '/admin.html';
+  const docLabel     = documentType || 'identity document';
 
   try {
     await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -116,7 +130,7 @@ async function notifyAdmin({ uid, adminEmail, platformUrl, env }) {
         htmlContent: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;">
           <h2 style="color:#0d2145;margin:0 0 12px 0;">New KYC Submission</h2>
           <p style="color:#4a5568;font-size:15px;line-height:1.6;margin:0 0 20px 0;">
-            A freelancer (UID: <code>${uid}</code>) has submitted their NIN card and selfie for identity verification.
+            A freelancer (UID: <code>${uid}</code>) has submitted their ${docLabel} and selfie for identity verification.
           </p>
           <a href="${reviewUrl}" style="display:inline-block;background:#2d8a5e;color:#fff;text-decoration:none;padding:13px 28px;border-radius:50px;font-weight:600;font-size:15px;">
             Review in Admin Panel
@@ -171,7 +185,15 @@ export default {
   const idNumber    = sanitizeString(payload.idNumber,    50);
   const phoneNumber = sanitizeString(payload.phoneNumber, 20);
 
-  console.log('KYC submit — uid:', uid, 'frontImage length:', frontImage?.length, 'backImage length:', backImage?.length, 'selfieImage length:', selfieImage?.length);
+  // Validate the submitted document type against the allow-list. Anything
+  // unrecognized (missing field, tampered value, stale client) falls back
+  // to 'NIN Card' rather than failing the request.
+  const rawDocumentType = sanitizeString(payload.documentType, 40);
+  const documentType    = ALLOWED_DOCUMENT_TYPES.includes(rawDocumentType)
+    ? rawDocumentType
+    : 'NIN Card';
+
+  console.log('KYC submit — uid:', uid, 'documentType:', documentType, 'frontImage length:', frontImage?.length, 'backImage length:', backImage?.length, 'selfieImage length:', selfieImage?.length);
 
   /* Validate uid */
   if (!uid || typeof uid !== 'string' || uid.length < 4) {
@@ -254,7 +276,7 @@ export default {
   try {
     await db.collection('users').doc(uid).update({
       kycStatus:          'under-review',
-      kycDocumentType:    'NIN Card',
+      kycDocumentType:    documentType,
       kycSubmittedAt:     FieldValue.serverTimestamp(),
       kycImages: { frontUrl, backUrl, selfieUrl },
       kycRejectionReason: FieldValue.delete(),
@@ -270,7 +292,7 @@ export default {
   }
 
   /* Notify admin */
-  await notifyAdmin({ uid, adminEmail: env.ADMIN_EMAIL, platformUrl: env.PLATFORM_URL, env });
+  await notifyAdmin({ uid, adminEmail: env.ADMIN_EMAIL, platformUrl: env.PLATFORM_URL, env, documentType });
 
   console.log('KYC submitted successfully for uid:', uid);
   return new Response(JSON.stringify({ ok: true }), {

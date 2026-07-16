@@ -263,31 +263,43 @@ async fetch(request, env, ctx) {
 
     let contractPdfUrl = data.contractPdfUrl || null;
 
-    if (bothSigned && !contractPdfUrl) {
-      // Re-fetch to get the server-written timestamps for the signature we just recorded
-      const freshSnap = await ref.get();
-      const freshData = freshSnap.data();
-
-      // Merge in the new signature image so PDF has it
-      if (role === 'freelancer' && signature) freshData.freelancerSignature = signature;
-      if (role === 'buyer'      && signature) freshData.buyerSignature      = signature;
-
-      // Generate PDF
-      const pdfBuffer = await buildPdf(freshData, contractId, env, ctx);
-
-      // Upload to Cloudinary
-      const publicId  = `contract-${contractId}-${Date.now()}`;
-      contractPdfUrl  = await uploadToCloudinary(pdfBuffer, publicId, env);
-
-      // Persist URL + flip status to active + unlock payment button
-      await ref.update({
-        contractPdfUrl,
-        status: 'active',
-        escrowStatus: 'unfunded',
-      });
-    } else if (bothSigned && contractPdfUrl) {
-      // Both were already signed before, just make sure status is active
+    if (bothSigned) {
+      // Fix 11: flip status to active in its own step, immediately once both
+      // signatures are recorded — this must never be blocked by (or lost to)
+      // a PDF-generation/Cloudinary failure. Previously the status flip was
+      // combined with PDF generation, so if that step threw, the whole
+      // request 500'd and the contract stayed stuck on "awaiting_signatures"
+      // forever even though both freelancerSigned/buyerSigned were already
+      // true (written above at the top of this function).
       await ref.update({ status: 'active', escrowStatus: 'unfunded' });
+
+      if (!contractPdfUrl) {
+        try {
+          // Re-fetch to get the server-written timestamps for the signature we just recorded
+          const freshSnap = await ref.get();
+          const freshData = freshSnap.data();
+
+          // Merge in the new signature image so PDF has it
+          if (role === 'freelancer' && signature) freshData.freelancerSignature = signature;
+          if (role === 'buyer'      && signature) freshData.buyerSignature      = signature;
+
+          // Generate PDF
+          const pdfBuffer = await buildPdf(freshData, contractId, env, ctx);
+
+          // Upload to Cloudinary
+          const publicId  = `contract-${contractId}-${Date.now()}`;
+          contractPdfUrl  = await uploadToCloudinary(pdfBuffer, publicId, env);
+
+          // Persist the URL now that generation succeeded
+          await ref.update({ contractPdfUrl });
+        } catch (pdfErr) {
+          // Non-fatal (same pattern as the notification block below): the
+          // contract is already active regardless. dashboard-contracts.html's
+          // viewContractPdf() fallback generates the PDF on-demand via
+          // download-contract.js whenever contractPdfUrl is still missing.
+          console.warn('[sign-contract] PDF generation/upload failed — contract remains active, PDF can be generated on demand:', pdfErr && pdfErr.message);
+        }
+      }
     }
 
     /* ── Notify the other party ── */
